@@ -2,9 +2,11 @@
 ; ioctls (no libdrm), with the structs of the kernel's <drm/drm_mode.h>.
 
 (import "libc")
+(import "posix")
+(import "io")
 (import-c "drm/drm.h" "drm/drm_mode.h" :as drmh)
 (import "prelude")
-(using libc drmh prelude)
+(using libc posix io drmh prelude)
 
 ; an XRGB8888 image in memory someone else owns (a buffer or a DRM mapping)
 (struct target (base (ptr u8)) (w u32) (h u32) (pitch u32))

@@ -3,6 +3,7 @@
 ; depth rejection), on several threads over rows.
 
 (import "libc")
+(import "thread")
 (import "math")
 (import "prelude")
 (import "vec")
@@ -24,7 +25,7 @@
 ; one worker's share: rows y0..y1
 (struct- rows-job
   (t (ptr state)) (frame (ptr u32)) (w u32) (h u32) (depth (ptr f32)) (v view)
-  (y0 u32) (y1 u32) (thread pthread_t))
+  (y0 u32) (y1 u32) (thread thread::pthread_t))
 
 (defn- blend-rows ((job (ptr rows-job))) void
   (let ((w job.w) (h job.h) (v job.v) (pv job.t.hist-view) (ok job.t.ok)
@@ -119,8 +120,8 @@
         (let ((job (+ jobs k)))
           (set (deref job) (make rows-job :t t :frame frame :w w :h h :depth depth :v v
                                           :y0 (/ (* h k) threads) :y1 (/ (* h (+ k 1)) threads)))
-          (pthread_create (addr job.thread) null blend-thread job)))
-      (for (k u32 0 threads) (pthread_join (. (aref jobs k) thread) null))
+          (thread::pthread_create (addr job.thread) null blend-thread job)))
+      (for (k u32 0 threads) (thread::pthread_join (. (aref jobs k) thread) null))
       (free jobs))
     (let ((tmp t.hist)) (set t.hist t.next) (set t.next tmp))
     (let ((tmp t.hist-depth)) (set t.hist-depth t.next-depth) (set t.next-depth tmp))

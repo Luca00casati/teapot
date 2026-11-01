@@ -5,10 +5,12 @@
 ; or instruction set, so it serves every Intel generation i915 drives.
 
 (import "libc")
+(import "posix")
+(import "io")
 (import-c "drm/i915_drm.h" :as i915h)
 (import "prelude")
 (import "layers")
-(using libc i915h prelude layers)
+(using libc posix io i915h prelude layers)
 
 (struct- i915
   (fd i32)

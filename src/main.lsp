@@ -15,20 +15,24 @@
 ; ioctls, no Mesa; today Intel Haswell on i915).
 
 (import "libc")
+(import "posix")
+(import "io")
+(import "signal")
+(import "time")
 (import "prelude")
 (import "scene")
 (import "tone")
 (import "temporal")
 (import "gpu")
 (import "display")
-(using libc prelude)
+(using libc posix io prelude)
 
 (def quit i32 0)
 (defn on-signal ((sig i32)) void (set quit 1))
 
 (defn now () f64
-  (let ((ts (make timespec)))
-    (clock_gettime CLOCK_MONOTONIC (addr ts))
+  (let ((ts (make time::timespec)))
+    (time::clock_gettime time::CLOCK_MONOTONIC (addr ts))
     (+ (cast f64 ts.tv_sec) (* (cast f64 ts.tv_nsec) 1e-9))))
 
 (defn key-pressed () bool
@@ -152,8 +156,8 @@
               (return 1))
             (set tgt (display::front (addr disp)))))
 
-      (signal SIGINT on-signal)
-      (signal SIGTERM on-signal)
+      (signal::signal signal::SIGINT on-signal)
+      (signal::signal signal::SIGTERM on-signal)
       (let ((nthreads (sysconf _SC_NPROCESSORS_ONLN)) (threads u32 (if (< nthreads 1) 1 (cast u32 nthreads)))
             (auto-spp (<= spp-arg 0)) (spp u32 (if (> spp-arg 0) (cast u32 spp-arg) 0)))
 
