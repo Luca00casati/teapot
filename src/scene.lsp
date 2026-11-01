@@ -2,9 +2,11 @@
 ; binned-SAH BVH, the GPU scene layout, the camera, and the look (light, sky)
 ; shared with the GPU kernel.
 
-(c-include "stdlib.h" "string.h" "math.h")
-(import "prelude" :all)
-(import "vec" :all)
+(import "libc")
+(import "math")
+(import "prelude")
+(import "vec")
+(using libc prelude vec)
 
 ;; Classic 10 patch / 127 control point form; rim, body, lid and bottom are
 ;; mirrored into 4 quadrants, handle and spout into 2 → 32 bicubic patches.
@@ -157,7 +159,7 @@
                 (set n (cross du dv))
                 (when (< (length n) 1e-6)
                   ; degenerate pole (lid knob, bottom centre)
-                  (let ((cu (fminf (fmaxf u 1e-3) (- 1.0 1e-3))) (cv (fminf (fmaxf v 1e-3) (- 1.0 1e-3))) (q0 v3))
+                  (let ((cu (math::fminf (math::fmaxf u 1e-3) (- 1.0 1e-3))) (cv (math::fminf (math::fmaxf v 1e-3) (- 1.0 1e-3))) (q0 v3))
                     (eval-patch cp cu cv (addr q0) (addr du) (addr dv))
                     (set n (cross du dv))))
                 (set (aref s.vpos s.nv) pt)
@@ -303,7 +305,7 @@
               (let ((l (. (aref nodes ni) first)) (r (+ l 1))
                     ; split axis ≈ largest separation of the child centres
                     (d (- (+ (. (aref nodes r) bmin) (. (aref nodes r) bmax)) (+ (. (aref nodes l) bmin) (. (aref nodes l) bmax))))
-                    (x (fabsf d.x)) (y (fabsf d.y)) (z (fabsf d.z))
+                    (x (math::fabsf d.x)) (y (math::fabsf d.y)) (z (math::fabsf d.z))
                     (ax (if (and (> x y) (> x z)) 0 (if (> y z) 1 2)))
                     (neg-dir (!= (& (>> oct ax) 1) 0))
                     (near (if (!= (> (axis d ax) 0.0) neg-dir) l r)))   ; child a ray in this octant meets first
@@ -345,10 +347,10 @@
 (defn orbit ((angle f32)) camera
   (let ((centre (vec3 0.2 0.0 0.0)) (look (vec3 0.2 1.25 0.0))
         (radius f32 9.44) (height f32 4.4) (a0 f32 0.635)          ; a0 = atan2(5.6, 7.6)
-        (pos (vec3 (+ centre.x (* radius (sinf (+ a0 angle)))) height (+ centre.z (* radius (cosf (+ a0 angle))))))
+        (pos (vec3 (+ centre.x (* radius (math::sinf (+ a0 angle)))) height (+ centre.z (* radius (math::cosf (+ a0 angle))))))
         (fwd (normalize (- look pos)))
         (right (normalize (cross fwd (vec3 0.0 1.0 0.0)))))
-    (make camera :pos pos :fwd fwd :right right :up (cross right fwd) :tan (tanf (/ (* 34.0 PI) 360.0)))))
+    (make camera :pos pos :fwd fwd :right right :up (cross right fwd) :tan (math::tanf (/ (* 34.0 PI) 360.0)))))
 
 ; the look, shared with the GPU kernel
 (def light-pos v3 (make v3 :x -6.0 :y 8.0 :z 0.5))

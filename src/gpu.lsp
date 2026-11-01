@@ -14,15 +14,16 @@
 ;
 ; lisc -DTEAPOT_GPU_DEBUG renders a heat map of the traversal instead.
 
-(c-include "stdio.h" "stdlib.h" "string.h")
-(import "prelude" :all)
-(import "layers" :all)
+(import "libc")
+(import "prelude")
+(import "layers")
 (import "kir")
-(import "vec" :all)
+(import "vec")
 (import "scene")
 (import "rt-kernel" :as rt)
 (import "gen75")
 (import "i915")
+(using libc prelude layers vec)
 
 (struct device
   (hw (ptr hardware)) (drv (ptr driver))

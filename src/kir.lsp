@@ -33,8 +33,9 @@
 ; Operators build an `expr`, which is not an operand, so a compound
 ; expression such as (+ (* a b) c) does not compile.
 
-(c-include "stdlib.h")
-(import "prelude" :all)
+(import "libc")
+(import "prelude")
+(using prelude)
 
 ; operand kinds
 (const K-NONE 0) (const K-V 1) (const K-S 2) (const K-U 3) (const K-B 4) (const K-LANE0 5)
@@ -101,7 +102,7 @@
 (defn- emit ((i inst)) u32
   (when (= prog.n prog.cap)
     (set prog.cap (if (= prog.cap 0) 1024 (* prog.cap 2)))
-    (set prog.code (cast (ptr inst) (realloc prog.code (* (sizeof inst) (cast u64 prog.cap))))))
+    (set prog.code (cast (ptr inst) (libc::realloc prog.code (* (sizeof inst) (cast u64 prog.cap))))))
   (set (aref prog.code prog.n) i)
   (+= prog.n 1)
   (- prog.n 1))
@@ -219,7 +220,7 @@
     (set i.target l.pos)
     (let ((at (emit i)))
       (when (< l.pos 0)
-        (set l.fix (cast (ptr u32) (realloc l.fix (* 4 (cast u64 (+ l.nfix 1))))))
+        (set l.fix (cast (ptr u32) (libc::realloc l.fix (* 4 (cast u64 (+ l.nfix 1))))))
         (set (aref l.fix l.nfix) at)
         (+= l.nfix 1)))))
 

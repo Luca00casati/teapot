@@ -15,10 +15,11 @@
 ;     block loads are SIMD16
 ;   - an inverted any16h predicate applies after the reduction ("no lane")
 
-(c-include "stdio.h" "stdlib.h" "string.h")
-(import "prelude" :all)
-(import "kir" :all)
-(import "layers" :all)
+(import "libc")
+(import "prelude")
+(import "kir")
+(import "layers")
+(using libc prelude kir layers)
 
 (const RF-ARF 0) (const RF-GRF 1) (const RF-IMM 3)
 (const TY-UD 0) (const TY-D 1) (const TY-UW 2) (const TY-W 3) (const TY-F 7)

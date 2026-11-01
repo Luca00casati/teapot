@@ -2,11 +2,13 @@
 ; blended with the previous ones, reprojected through the per-pixel depth (with
 ; depth rejection), on several threads over rows.
 
-(c-include "stdlib.h" "math.h" "pthread.h")
-(import "prelude" :all)
-(import "vec" :all)
+(import "libc")
+(import "math")
+(import "prelude")
+(import "vec")
 (import "scene")
 (import "tone")
+(using libc prelude vec)
 
 (struct- view (pos v3) (fwd v3) (right v3) (up v3) (tx f32) (ty f32))
 
@@ -41,7 +43,7 @@
                 (hc (array f32 3)) (n f32 0.0) (wsum f32 0.0)
                 (glossy (< t 0.0))       ; the GPU marks teapot pixels with a negative depth
                 (sky (>= t 1e5)))
-            (set t (fabsf t))
+            (set t (math::fabsf t))
             (when ok
               ; world point of this pixel relative to the previous camera
               (let ((s (* (if sky 1e4 t) il))
@@ -51,7 +53,7 @@
                   (let ((rz (/ 1.0 z))
                         (fx (- (+ (* (cast f32 w) 0.5) (* (dot q pv.right) rz itx)) 0.5))
                         (fy (- (- (* (cast f32 h) 0.5) (* (dot q pv.up) rz ity)) 0.5))
-                        (ix (cast i32 (floorf fx))) (iy (cast i32 (floorf fy)))
+                        (ix (cast i32 (math::floorf fx))) (iy (cast i32 (math::floorf fy)))
                         (ax (- fx (cast f32 ix))) (ay (- fy (cast f32 iy)))
                         (tol (+ (* 0.02 z) 0.02)))
                     ; bilinear, but only over taps that saw the same surface
@@ -60,7 +62,7 @@
                         (unless (or (< tx 0) (< ty 0) (>= tx (cast i32 w)) (>= ty (cast i32 h)))
                           (let ((j (+ (* (cast u32 ty) w) (cast u32 tx)))
                                 (hd (aref pd j)))
-                            (unless (if sky (< hd 1e8) (> (fabsf (- hd z)) tol))
+                            (unless (if sky (< hd 1e8) (> (math::fabsf (- hd z)) tol))
                               (let ((wt (+ (* (if (!= (& k 1) 0) ax (- 1.0 ax)) (if (!= (>> k 1) 0) ay (- 1.0 ay))) 1e-4))
                                     (hp (+ ph (* j 4))))
                                 (+= (aref hc 0) (* (aref hp 0) wt))
@@ -77,13 +79,13 @@
                     (*= n iw)
                     ; running mean, then an exponential average; reflections and highlights on
                     ; the teapot move with the view, so it keeps much less history than the floor
-                    (set alpha (fmaxf (/ 1.0 (+ n 1.0)) (if glossy 0.5 0.2))))
+                    (set alpha (math::fmaxf (/ 1.0 (+ n 1.0)) (if glossy 0.5 0.2))))
                   (set n 0.0))
               (let ((out (+ nh (* i 4))))
                 (for (a 0 3) (set (aref out a) (+ (aref hc a) (* (- (aref c a) (aref hc a)) alpha))))
                 (set (aref out 3) (+ n 1.0))
                 (set (aref nd i) (if sky 1e9 (* t il)))
-                (let ((oc (make (array f32 3) (fminf (aref out 0) 1.0) (fminf (aref out 1) 1.0) (fminf (aref out 2) 1.0))))
+                (let ((oc (make (array f32 3) (math::fminf (aref out 0) 1.0) (math::fminf (aref out 1) 1.0) (math::fminf (aref out 2) 1.0))))
                   (set (aref job.frame i) (tone::encode oc 4095.0)))))))))))
 
 (defn- blend-thread ((arg (ptr void))) (ptr void)
@@ -111,7 +113,7 @@
       (for (y u32 0 h) (set (aref t.sy y) (* (- 1.0 (/ (* (+ (cast f32 y) 0.5) 2.0) (cast f32 h))) v.ty)))
       (for (i u64 0 n)
         (let ((sx (aref t.sx (% i (cast u64 w)))) (sy (aref t.sy (/ i (cast u64 w)))))
-          (set (aref t.il i) (/ 1.0 (sqrtf (+ 1.0 (* sx sx) (* sy sy))))))))
+          (set (aref t.il i) (/ 1.0 (math::sqrtf (+ 1.0 (* sx sx) (* sy sy))))))))
     (let ((jobs (cast (ptr rows-job) (calloc (cast u64 threads) (sizeof rows-job)))))
       (for (k u32 0 threads)
         (let ((job (+ jobs k)))

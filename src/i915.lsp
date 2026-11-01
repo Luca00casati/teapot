@@ -4,9 +4,11 @@
 ; own <drm/i915_drm.h>. It knows nothing about the hardware's command stream
 ; or instruction set, so it serves every Intel generation i915 drives.
 
-(c-include "stdio.h" "stdlib.h" "string.h" "fcntl.h" "unistd.h" "sys/ioctl.h" "sys/mman.h" "drm/i915_drm.h")
-(import "prelude" :all)
-(import "layers" :all)
+(import "libc")
+(import-c "drm/i915_drm.h" :as i915h)
+(import "prelude")
+(import "layers")
+(using libc i915h prelude layers)
 
 (struct- i915
   (fd i32)

@@ -1,11 +1,12 @@
 ; host.lsp — checks the host side against the previous implementations:
 ; the GPU scene data and the frame blending must give the same checksums as
 ; a strict-float (no -ffast-math, no FMA contraction) C++/Rust build.
-(c-include "stdio.h" "stdlib.h")
-(import "../src/prelude" :all)
+(import "libc")
+(import "../src/prelude")
 (import "../src/scene")
 (import "../src/tone")
 (import "../src/temporal")
+(using libc prelude)
 
 (defn fnv ((h u64) (v u32)) u64 (* (^ h (cast u64 v)) 1099511628211))
 

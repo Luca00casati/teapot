@@ -1,9 +1,10 @@
 ; kernel.lsp — writes the GPU kernel's machine code to a file, without a
 ; GPU, for disassemblers and for comparing builds (argv[1]: path, argv[2]: "debug")
-(c-include "stdio.h" "string.h")
+(import "libc")
 (import "../src/kir")
 (import "../src/rt-kernel" :as rt)
 (import "../src/gen75")
+(using libc)
 
 (defn main ((argc i32) (argv (ptr (ptr i8)))) i32
   (rt::build (and (> argc 2) (= (strcmp (aref argv 2) "debug") 0)))

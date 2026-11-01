@@ -6,10 +6,11 @@
 ; no stack and every branch is uniform ("descend if any lane hits the box"),
 ; with per-lane work done by predication.
 
-(import "prelude" :all)
-(import "vec" :all)
-(import "kir" :all)
+(import "prelude")
+(import "vec")
+(import "kir")
 (import "scene")
+(using prelude vec kir)
 
 ; uniform slots (32 dwords)
 (const U-CAM 0)                          ; 0-2 camera  3 tan*aspect  4-6 forward  7 tan

@@ -14,13 +14,14 @@
 ; compiled by our own hardware layer and submitted with raw kernel-driver
 ; ioctls, no Mesa; today Intel Haswell on i915).
 
-(c-include "stdio.h" "stdlib.h" "string.h" "math.h" "signal.h" "time.h" "unistd.h" "poll.h")
-(import "prelude" :all)
+(import "libc")
+(import "prelude")
 (import "scene")
 (import "tone")
 (import "temporal")
 (import "gpu")
 (import "display")
+(using libc prelude)
 
 (def quit i32 0)
 (defn on-signal ((sig i32)) void (set quit 1))
