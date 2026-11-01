@@ -6,7 +6,7 @@
 (def lin8 (array f32 256))
 (def enc12 (array u8 4096))
 
-(defn tone-init () void
+(defn init () void
   (for (i 0 256) (set (aref lin8 i) (powf (/ (cast f32 i) 255.0) 2.2)))
   (for (i 0 4096) (set (aref enc12 i) (cast u8 (+ (* (powf (/ (cast f32 i) 4095.0) (/ 1.0 2.2)) 255.0) 0.5)))))
 

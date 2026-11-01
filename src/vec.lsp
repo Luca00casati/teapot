@@ -1,5 +1,7 @@
 ; vec.lsp — 3-component float vector used by the scene and the host side of the GPU path.
 
+(c-include "math.h")
+
 (struct v3 (x f32) (y f32) (z f32))
 
 (defn vec3 ((x f32) (y f32) (z f32)) v3 (make v3 :x x :y y :z z))

@@ -3,11 +3,14 @@
 ; depth rejection), on several threads over rows.
 
 (c-include "stdlib.h" "math.h" "pthread.h")
-(include "scene.lsp" "tone.lsp")
+(import "prelude" :all)
+(import "vec" :all)
+(import "scene")
+(import "tone")
 
-(struct view (pos v3) (fwd v3) (right v3) (up v3) (tx f32) (ty f32))
+(struct- view (pos v3) (fwd v3) (right v3) (up v3) (tx f32) (ty f32))
 
-(struct temporal
+(struct state
   ; history: linear RGB + sample count, and view-space depth (1e9 = sky);
   ; the frame being blended writes `next`, which then becomes `hist`
   (hist (ptr f32)) (hist-depth (ptr f32)) (next (ptr f32)) (next-depth (ptr f32))
@@ -17,11 +20,11 @@
   (ok bool))
 
 ; one worker's share: rows y0..y1
-(struct rows-job
-  (t (ptr temporal)) (frame (ptr u32)) (w u32) (h u32) (depth (ptr f32)) (v view)
+(struct- rows-job
+  (t (ptr state)) (frame (ptr u32)) (w u32) (h u32) (depth (ptr f32)) (v view)
   (y0 u32) (y1 u32) (thread pthread_t))
 
-(defn blend-rows ((job (ptr rows-job))) void
+(defn- blend-rows ((job (ptr rows-job))) void
   (let ((w job.w) (h job.h) (v job.v) (pv job.t.hist-view) (ok job.t.ok)
         (ph job.t.hist) (pd job.t.hist-depth) (nh job.t.next) (nd job.t.next-depth)
         (dp (- v.pos pv.pos))
@@ -32,7 +35,7 @@
         (for (x u32 0 w)
           (let ((i (+ (* y w) x))
                 (p (aref job.frame i))
-                (c (make (array f32 3) (aref lin8 (& (>> p 16) 255)) (aref lin8 (& (>> p 8) 255)) (aref lin8 (& p 255))))
+                (c (make (array f32 3) (aref tone::lin8 (& (>> p 16) 255)) (aref tone::lin8 (& (>> p 8) 255)) (aref tone::lin8 (& p 255))))
                 (t (aref job.depth i))
                 (il (aref job.t.il i))
                 (hc (array f32 3)) (n f32 0.0) (wsum f32 0.0)
@@ -81,17 +84,17 @@
                 (set (aref out 3) (+ n 1.0))
                 (set (aref nd i) (if sky 1e9 (* t il)))
                 (let ((oc (make (array f32 3) (fminf (aref out 0) 1.0) (fminf (aref out 1) 1.0) (fminf (aref out 2) 1.0))))
-                  (set (aref job.frame i) (encode oc 4095.0)))))))))))
+                  (set (aref job.frame i) (tone::encode oc 4095.0)))))))))))
 
-(defn blend-thread ((arg (ptr void))) (ptr void)
+(defn- blend-thread ((arg (ptr void))) (ptr void)
   (blend-rows (cast (ptr rows-job) arg))
   null)
 
-(defn falloc ((n u64)) (ptr f32) (cast (ptr f32) (calloc n (sizeof f32))))
+(defn- falloc ((n u64)) (ptr f32) (cast (ptr f32) (calloc n (sizeof f32))))
 
 ; blend `frame` (XRGB8888, w x h, rendered from `cam` with primary hit
 ; distances `depth`, negative on the glossy teapot) with the history, in place
-(defn temporal-blend ((t (ptr temporal)) (frame (ptr u32)) (w u32) (h u32) (depth (ptr f32)) (cam (ptr camera)) (threads u32)) void
+(defn blend ((t (ptr state)) (frame (ptr u32)) (w u32) (h u32) (depth (ptr f32)) (cam (ptr scene::camera)) (threads u32)) void
   (let ((n (cast u64 (* w h)))
         (v (make view :pos cam.pos :fwd cam.fwd :right cam.right :up cam.up
                       :tx (/ (* cam.tan (cast f32 w)) (cast f32 h)) :ty cam.tan)))

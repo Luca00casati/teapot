@@ -15,7 +15,12 @@
 ; ioctls, no Mesa; today Intel Haswell on i915).
 
 (c-include "stdio.h" "stdlib.h" "string.h" "math.h" "signal.h" "time.h" "unistd.h" "poll.h")
-(include "gpu.lsp" "temporal.lsp" "display.lsp")
+(import "prelude" :all)
+(import "scene")
+(import "tone")
+(import "temporal")
+(import "gpu")
+(import "display")
 
 (def quit i32 0)
 (defn on-signal ((sig i32)) void (set quit 1))
@@ -46,25 +51,25 @@
   (make accum :rgb (cast (ptr u32) (calloc (cast u64 n) 4)) :acc (cast (ptr f32) (calloc (* 3 (cast u64 n)) 4)) :n n))
 (defn accum-free ((a (ptr accum))) void (free a.rgb) (free a.acc))
 
-(defn accum-add ((a (ptr accum)) (g (ptr gpu)) (cam (ptr camera)) (k u32) (seed u32) (sample-base u32) (depth (ptr f32))) bool
-  (unless (and (gpu-submit g cam k seed sample-base) (gpu-collect g a.rgb depth)) (return false))
+(defn accum-add ((a (ptr accum)) (g (ptr gpu::device)) (cam (ptr scene::camera)) (k u32) (seed u32) (sample-base u32) (depth (ptr f32))) bool
+  (unless (and (gpu::submit g cam k seed sample-base) (gpu::collect g a.rgb depth)) (return false))
   (for (i u32 0 a.n)
     (let ((p (aref a.rgb i)))
       (for (c u32 0 3)
-        (+= (aref a.acc (+ (* 3 i) c)) (* (aref lin8 (& (>> p (- 16 (* 8 c))) 255)) (cast f32 k))))))
+        (+= (aref a.acc (+ (* 3 i) c)) (* (aref tone::lin8 (& (>> p (- 16 (* 8 c))) 255)) (cast f32 k))))))
   (+= a.samples k)
   true)
 
-(defn accum-resolve ((a (ptr accum)) (t target)) void
+(defn accum-resolve ((a (ptr accum)) (t display::target)) void
   (let ((k (/ 4095.0 (cast f32 a.samples))))
     (for (y u32 0 t.h)
-      (let ((row (trow t y)))
-        (for (x u32 0 t.w) (set (aref row x) (encode (+ a.acc (* (+ (* y t.w) x) 3)) k)))))))
+      (let ((row (display::trow t y)))
+        (for (x u32 0 t.w) (set (aref row x) (tone::encode (+ a.acc (* (+ (* y t.w) x) 3)) k)))))))
 
 ; The progressive still image, drawn into tgt (the display or the file
 ; buffer). With `refine` (on screen) it keeps adding passes until a key is
 ; pressed; *key-stop then tells the caller.
-(defn still-image ((g (ptr gpu)) (cam (ptr camera)) (tgt target) (disp (ptr drm)) (spp (ptr u32)) (refine bool) (key-stop (ptr bool))) bool
+(defn still-image ((g (ptr gpu::device)) (cam (ptr scene::camera)) (tgt display::target) (disp (ptr display::drm)) (spp (ptr u32)) (refine bool) (key-stop (ptr bool))) bool
   (let ((per-pass u32 4) (acc (accum-new (* tgt.w tgt.h))) (ok true) (pass u32 0))
     (while (!= (% (deref spp) per-pass) 0) (-= per-pass 1))
     (while (= quit 0)
@@ -77,7 +82,7 @@
       (set ok (accum-add (addr acc) g cam per-pass (pass-seed pass) acc.samples null))
       (unless ok (break))
       (accum-resolve (addr acc) tgt)
-      (when (!= disp null) (drm-dirty disp))
+      (when (!= disp null) (display::dirty disp))
       (when (and refine (>= acc.samples (deref spp)))
         (fprintf stderr "\r%u samples/pixel, press Enter to exit " acc.samples))
       (+= pass 1))
@@ -87,7 +92,7 @@
     ok))
 
 ; one animation frame with more samples than a single pass
-(defn frame-passes ((g (ptr gpu)) (cam (ptr camera)) (frame target) (spp u32) (f u32) (depth (ptr f32))) bool
+(defn frame-passes ((g (ptr gpu::device)) (cam (ptr scene::camera)) (frame display::target) (spp u32) (f u32) (depth (ptr f32))) bool
   (let ((acc (accum-new (* frame.w frame.h))) (ok true))
     (while (and ok (< acc.samples spp))
       (let ((done acc.samples) (k (if (< (- spp done) MAX-PASS) (- spp done) MAX-PASS)))
@@ -103,7 +108,7 @@
           ((!= dot null) (snprintf name n "%.*s_%04u%s" (cast i32 (- dot o)) o f dot))
           (else (snprintf name n "%s_%04u.ppm" o f)))))
 
-(def disp drm (make drm :fd -1))
+(def disp display::drm (make display::drm :fd -1))
 
 (defn run ((argc i32) (argv (ptr (ptr i8)))) i32
   (let ((out (ptr i8) null) (card (ptr i8) null)
@@ -125,26 +130,26 @@
                       (aref argv 0))
              (return 1))))
 
-    (tone-init)
-    (let ((t0 (now)) (scene (scene-build)) (filebuf (ptr u32) null) (tgt (make target)))
+    (tone::init)
+    (let ((t0 (now)) (scene (scene::build)) (filebuf (ptr u32) null) (tgt (make display::target)))
       (fprintf stderr "teapot: %u triangles, %u BVH nodes (%.0f ms)\n" scene.ntri scene.nnode (* (- (now) t0) 1e3))
       (if (!= out null)
           (do (set filebuf (cast (ptr u32) (calloc (* (cast u64 W) H) 4)))
-              (set tgt (xrgb filebuf W H)))
+              (set tgt (display::xrgb filebuf W H)))
           (do
             (if (!= card null)
-                (drm-open (addr disp) card)
+                (display::open-card (addr disp) card)
                 (for (i 0 8)
                   (let ((p (array i8 32)))
                     (snprintf p 32 "/dev/dri/card%d" i)
-                    (when (and (= (access p F_OK) 0) (drm-open (addr disp) p)) (break)))))
+                    (when (and (= (access p F_OK) 0) (display::open-card (addr disp) p)) (break)))))
             (when (< disp.fd 0)
               (fprintf stderr "no display available; use -o out.ppm\n")
               ; a runtime check, not a build switch: is a desktop session holding the screen?
               (when (or (!= (getenv "DISPLAY") null) (!= (getenv "WAYLAND_DISPLAY") null))
                 (fprintf stderr "a desktop session owns the screen: switch to a text console (Ctrl+Alt+F3), log in and run it there\n"))
               (return 1))
-            (set tgt (drm-front (addr disp)))))
+            (set tgt (display::front (addr disp)))))
 
       (signal SIGINT on-signal)
       (signal SIGTERM on-signal)
@@ -156,52 +161,52 @@
           (let ((scale (if (!= out null) 1 rscale))
                 (fw (/ (- (+ tgt.w scale) 1) scale)) (fh (/ (- (+ tgt.h scale) 1) scale))
                 (framebuf (cast (ptr u32) (calloc (* (cast u64 fw) fh) 4)))
-                (frame (xrgb framebuf fw fh))
-                (g (gpu-open (addr scene) fw fh)))
+                (frame (display::xrgb framebuf fw fh))
+                (g (gpu::open (addr scene) fw fh)))
             (when (= g null) (return 1))
             (when auto-spp (set spp (if (!= out null) 16 1)))
             ; on screen the GPU renders few samples per frame and accumulates them over time
             (let ((blend (and (= out null) (not no-blend)))
-                  (temporal (make temporal))
+                  (history (make temporal::state))
                   (depth (ptr f32) (if blend (cast (ptr f32) (calloc (* (cast u64 fw) fh) 4)) null))
                   (start (now)) (tick (now)) (frames u32 0) (tick-frames u32 0)
                   ; light frames are pipelined: frame f+1 renders while f is blended and shown
                   (pipelined (<= spp MAX-PASS))
-                  (next (camera-orbit 0.0)) (f u32 0))
+                  (next (scene::orbit 0.0)) (f u32 0))
               (fprintf stderr "animating %ux%u @ %u spp%s on the gpu%s\n" fw fh spp
                        (if blend " + temporal accumulation" "") (if (!= out null) "" " (Enter or Ctrl-C to stop)"))
               (set start (now))
               (set tick start)
-              (set next (camera-orbit (angle-of out f start nframes)))
-              (when (and pipelined (not (gpu-submit g (addr next) spp (pass-seed 0) 0))) (return 1))
+              (set next (scene::orbit (angle-of out f start nframes)))
+              (when (and pipelined (not (gpu::submit g (addr next) spp (pass-seed 0) 0))) (return 1))
               (while (= quit 0)
                 (let ((cam next) (ok true))
                   (if pipelined
                       (do
-                        (set ok (gpu-collect g framebuf depth))
+                        (set ok (gpu::collect g framebuf depth))
                         (when (and ok (or (= out null) (< (+ f 1) nframes)))
-                          (set next (camera-orbit (angle-of out (+ f 1) start nframes)))
-                          (set ok (gpu-submit g (addr next) spp (pass-seed (+ f 1)) (* (+ f 1) spp)))))
+                          (set next (scene::orbit (angle-of out (+ f 1) start nframes)))
+                          (set ok (gpu::submit g (addr next) spp (pass-seed (+ f 1)) (* (+ f 1) spp)))))
                       (do
-                        (set cam (camera-orbit (angle-of out f start nframes)))
+                        (set cam (scene::orbit (angle-of out f start nframes)))
                         (set ok (frame-passes g (addr cam) frame spp f depth))))
                   (unless ok (return 1))
                   (when (!= quit 0) (break))
-                  (when blend (temporal-blend (addr temporal) framebuf fw fh depth (addr cam) threads))
+                  (when blend (temporal::blend (addr history) framebuf fw fh depth (addr cam) threads))
                   (+= frames 1)
                   (+= tick-frames 1)
                   (if (!= out null)
                       (let ((name (array i8 600)))
                         (frame-name out f name 600)
-                        (unless (write-ppm name frame) (return 1))
+                        (unless (display::write-ppm name frame) (return 1))
                         (fprintf stderr "\r%s (%u/%u)" name (+ f 1) nframes)
                         (when (>= (+ f 1) nframes)
                           (fprintf stderr "\n")
                           (break)))
                       (let ((t (now)))
-                        (drm-wait-flip (addr disp))
-                        (blit frame (drm-back (addr disp)) scale)
-                        (drm-flip (addr disp))
+                        (display::wait-flip (addr disp))
+                        (display::blit frame (display::back (addr disp)) scale)
+                        (display::flip (addr disp))
                         (when (>= (- t tick) 1.0)
                           (fprintf stderr "\r%.1f fps " (/ (cast f64 tick-frames) (- t tick)))
                           (set tick t)
@@ -217,16 +222,16 @@
 
         ;; ---- still image ----
         (let ((t1 (now)) (refine (and (= out null) (< hold 0) (= (isatty 0) 1))) (key-stop false)
-              (cam (camera-orbit 0.0)))
+              (cam (scene::orbit 0.0)))
           (when auto-spp (set spp 32))
-          (let ((g (gpu-open (addr scene) tgt.w tgt.h)))
+          (let ((g (gpu::open (addr scene) tgt.w tgt.h)))
             (when (= g null) (return 1))
             (unless (still-image g (addr cam) tgt (if (= out null) (addr disp) null) (addr spp) refine (addr key-stop))
               (return 1)))
           (let ((secs (- (now) t1)))
             (when (!= out null)
               (fprintf stderr "rendered %ux%u @ %u spp on the gpu in %.2f s\n" W H spp secs)
-              (return (if (write-ppm out tgt) 0 1)))
+              (return (if (display::write-ppm out tgt) 0 1)))
             ; hold the image: until Enter / Ctrl-C, or for -t seconds
             (cond (key-stop (read-key))         ; the key only ends the hold
                   ((= quit 0)
@@ -251,5 +256,5 @@
 (defn main ((argc i32) (argv (ptr (ptr i8)))) i32
   ; run returns instead of exiting so the display is restored on the way out
   (let ((r (run argc argv)))
-    (drm-close (addr disp))
+    (display::close-card (addr disp))
     r))

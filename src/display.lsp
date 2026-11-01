@@ -3,7 +3,7 @@
 
 (c-include "stdio.h" "stdlib.h" "string.h" "fcntl.h" "unistd.h" "poll.h" "sys/ioctl.h" "sys/mman.h"
            "drm/drm.h" "drm/drm_mode.h")
-(include "prelude.lsp")
+(import "prelude" :all)
 
 ; an XRGB8888 image in memory someone else owns (a buffer or a DRM mapping)
 (struct target (base (ptr u8)) (w u32) (h u32) (pitch u32))
@@ -39,7 +39,7 @@
 ;; ---------------------------------------------------------- DRM / KMS ---
 
 ; The first connected output of a DRM card, with two dumb buffers: still
-; images draw into the front one, animation flips between them. drm-close
+; images draw into the front one, animation flips between them. close-card
 ; restores the CRTC and frees the buffers.
 (struct drm
   (fd i32) (conn u32) (crtc u32)
@@ -49,28 +49,28 @@
   (saved drm_mode_crtc)                  ; the CRTC as we found it
   (tgt target))
 
-(defn drm-target ((d (ptr drm)) (k u32)) target (let ((t d.tgt)) (set t.base (aref d.map k)) t))
-(defn drm-front ((d (ptr drm))) target (drm-target d d.front))
-(defn drm-back ((d (ptr drm))) target (drm-target d (- 1 d.front)))
+(defn- card-target ((d (ptr drm)) (k u32)) target (let ((t d.tgt)) (set t.base (aref d.map k)) t))
+(defn front ((d (ptr drm))) target (card-target d d.front))
+(defn back ((d (ptr drm))) target (card-target d (- 1 d.front)))
 
-(defn drm-dirty-buf ((d (ptr drm)) (k u32)) void
+(defn- dirty-buf ((d (ptr drm)) (k u32)) void
   (let ((c (make drm_mode_fb_dirty_cmd :fb_id (aref d.fb k))))
     (ioctl d.fd DRM_IOCTL_MODE_DIRTYFB (addr c))))
 ; the front buffer changed (needed by virtio/udl style drivers)
-(defn drm-dirty ((d (ptr drm))) void (drm-dirty-buf d d.front))
+(defn dirty ((d (ptr drm))) void (dirty-buf d d.front))
 
 ; until the last queued flip happened, so the back buffer is free
-(defn drm-wait-flip ((d (ptr drm))) void
+(defn wait-flip ((d (ptr drm))) void
   (when d.flip-pending
     (let ((ev (array u8 1024)) (p (make pollfd :fd d.fd :events POLLIN)))
       (when (> (poll (addr p) 1 100) 0) (read d.fd ev 1024)))   ; event content unused
     (set d.flip-pending false)))
 
 ; queue the back buffer for the next vblank (does not wait)
-(defn drm-flip ((d (ptr drm))) void
+(defn flip ((d (ptr drm))) void
   (let ((back (- 1 d.front))
         (fl (make drm_mode_crtc_page_flip :crtc_id d.crtc :fb_id (aref d.fb back) :flags DRM_MODE_PAGE_FLIP_EVENT)))
-    (drm-dirty-buf d back)
+    (dirty-buf d back)
     (if (= (ioctl d.fd DRM_IOCTL_MODE_PAGE_FLIP (addr fl)) 0)
         (set d.flip-pending true)
         ; no page flip support: just switch the CRTC over
@@ -82,9 +82,9 @@
           (ioctl d.fd DRM_IOCTL_MODE_SETCRTC (addr c))))
     (set d.front back)))
 
-(defn drm-close ((d (ptr drm))) void
+(defn close-card ((d (ptr drm))) void
   (when (< d.fd 0) (return))
-  (drm-wait-flip d)
+  (wait-flip d)
   (when (!= d.saved.mode_valid 0)
     (set d.saved.set_connectors_ptr (cast u64 (addr d.conn)))
     (set d.saved.count_connectors 1)
@@ -99,7 +99,7 @@
   (set (deref d) (make drm :fd -1)))
 
 ; set up the first connected output of the card at path; false (with d closed) if none
-(defn drm-open ((d (ptr drm)) (path (ptr i8))) bool
+(defn open-card ((d (ptr drm)) (path (ptr i8))) bool
   (set (deref d) (make drm :fd -1))
   (let ((fd (open path (| O_RDWR O_CLOEXEC))))
     (when (< fd 0) (return false))
@@ -118,7 +118,7 @@
       (when (!= (ioctl fd DRM_IOCTL_MODE_GETRESOURCES (addr res)) 0)
         (close fd)
         (return false))
-      (set d.fd fd)                      ; drm-close cleans up from here on
+      (set d.fd fd)                      ; close-card cleans up from here on
 
       (for (i u32 0 res.count_connectors)
         (let ((c (make drm_mode_get_connector :connector_id (aref conns i))))
@@ -155,20 +155,20 @@
                       (for (k 0 2)
                         (set cd (make drm_mode_create_dumb :width mode.hdisplay :height mode.vdisplay :bpp 32))
                         (when (!= (ioctl fd DRM_IOCTL_MODE_CREATE_DUMB (addr cd)) 0)
-                          (perror "CREATE_DUMB") (drm-close d) (return false))
+                          (perror "CREATE_DUMB") (close-card d) (return false))
                         (set (aref d.handle k) cd.handle)
                         (set d.size cd.size)
                         (let ((fb (make drm_mode_fb_cmd :width cd.width :height cd.height :pitch cd.pitch
                                                         :bpp 32 :depth 24 :handle cd.handle)))
                           (when (!= (ioctl fd DRM_IOCTL_MODE_ADDFB (addr fb)) 0)
-                            (perror "ADDFB") (drm-close d) (return false))
+                            (perror "ADDFB") (close-card d) (return false))
                           (set (aref d.fb k) fb.fb_id))
                         (let ((md (make drm_mode_map_dumb :handle cd.handle)))
                           (when (!= (ioctl fd DRM_IOCTL_MODE_MAP_DUMB (addr md)) 0)
-                            (perror "MAP_DUMB") (drm-close d) (return false))
+                            (perror "MAP_DUMB") (close-card d) (return false))
                           (let ((m (mmap null cd.size (| PROT_READ PROT_WRITE) MAP_SHARED fd (cast i64 md.offset))))
                             (when (= (cast i64 m) -1)
-                              (perror "mmap dumb") (drm-close d) (return false))
+                              (perror "mmap dumb") (close-card d) (return false))
                             (memset m 0 cd.size)
                             (set (aref d.map k) (cast (ptr u8) m)))))
 
@@ -180,7 +180,7 @@
                         (when (!= (ioctl fd DRM_IOCTL_MODE_SETCRTC (addr sc)) 0)
                           (perror "SETCRTC (is a compositor holding DRM master? run from a text VT)")
                           (set d.saved.mode_valid 0)
-                          (drm-close d)
+                          (close-card d)
                           (return false)))
                       (set d.crtc crtc)
                       (set d.front 0)
@@ -191,5 +191,5 @@
                       (return true)))))
               (free modes) (free cenc))))))
     (fprintf stderr "drm: %s has no usable connected output\n" path)
-    (drm-close d)
+    (close-card d)
     false))

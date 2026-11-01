@@ -7,7 +7,7 @@
 ; Supporting another GPU means another hardware (and, if its kernel driver
 ; differs, another driver); the ray tracer itself does not change.
 
-(include "kir.lsp")
+(import "kir")
 
 ; GPU memory, mapped write-back into the CPU; freed through its driver
 (struct buffer (drv (ptr driver)) (handle u32) (size u64) (map (ptr u8)))
@@ -26,7 +26,7 @@
 (struct hardware
   (name (ptr i8))
   (state (ptr void))
-  (compile (ptr (fn ((ptr hardware) (ptr program)) bool)))
+  (compile (ptr (fn ((ptr hardware) (ptr kir::program)) bool)))
   ; bufs[0] scene, bufs[1..2] images of tiles_x*4 by tiles_y*4 dwords
   (setup (ptr (fn ((ptr hardware) (ptr driver) u32 u32 (ptr buffer)) bool)))
   (run (ptr (fn ((ptr hardware) (ptr u32)) bool))))          ; queue the whole grid, return at once

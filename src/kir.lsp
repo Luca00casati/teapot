@@ -34,7 +34,7 @@
 ; expression such as (+ (* a b) c) does not compile.
 
 (c-include "stdlib.h")
-(include "prelude.lsp")
+(import "prelude" :all)
 
 ; operand kinds
 (const K-NONE 0) (const K-V 1) (const K-S 2) (const K-U 3) (const K-B 4) (const K-LANE0 5)
@@ -66,7 +66,7 @@
 (def group-x operand (make operand :kind K-GROUPX :ty TY-U))
 (def group-y operand (make operand :kind K-GROUPY :ty TY-U))
 
-(defn opnd ((kind u8) (ty u8) (idx u16)) operand (make operand :kind kind :ty ty :idx idx))
+(defn- opnd ((kind u8) (ty u8) (idx u16)) operand (make operand :kind kind :ty ty :idx idx))
 (defn uni ((i i32)) operand (opnd K-U TY-F (cast u16 i)))
 (defn blk ((block i32) (i i32)) operand (opnd K-B TY-F (cast u16 (+ (* block 16) i))))
 (defn lane0 ((v operand)) operand (opnd K-LANE0 v.ty v.idx))
@@ -96,9 +96,9 @@
 
 (def prog program)                       ; the program being built
 
-(defn new-inst ((op u8)) inst (make inst :op op :target -1))
+(defn- new-inst ((op u8)) inst (make inst :op op :target -1))
 
-(defn emit ((i inst)) u32
+(defn- emit ((i inst)) u32
   (when (= prog.n prog.cap)
     (set prog.cap (if (= prog.cap 0) 1024 (* prog.cap 2)))
     (set prog.code (cast (ptr inst) (realloc prog.code (* (sizeof inst) (cast u64 prog.cap))))))
@@ -115,18 +115,18 @@
 ; one pending instruction: what an operator returns, emitted by <-
 (struct expr (op u8) (a operand) (b operand) (sat bool))
 
-(defn ex ((op u8) (a operand) (b operand)) expr (make expr :op op :a a :b b))
-(defn mov ((a operand)) expr (ex OP-MOV a none))
+(defn- ex ((op u8) (a operand) (b operand)) expr (make expr :op op :a a :b b))
+(defn- mov ((a operand)) expr (ex OP-MOV a none))
 
 ; an operand from an operand or a number (f32 → float immediate, integer → uint)
-(defmacro arg (x)
+(defmacro- arg (x)
   (let ((t (type-of x)))
     (cond ((eq t 'operand) x)
           ((eq (type-kind t) 'float) `(fimm ,x))
           (else `(uimm ,x)))))
 
 ; the binary operators, with an operand or a number on the right
-(defmacro kir-binop (op code)
+(defmacro- kir-binop (op code)
   `(do (defop ,op ((a operand) (b operand)) expr (ex ,code a b))
        (defop ,op ((a operand) (b f32)) expr (ex ,code a (fimm b)))
        (defop ,op ((a operand) (b u32)) expr (ex ,code a (uimm b)))))
@@ -158,7 +158,7 @@
 (def f0 flag (make flag :n 0))
 (def f1 flag (make flag :n 1))
 
-(defmacro kir-cmpop (op c)
+(defmacro- kir-cmpop (op c)
   `(do (defop ,op ((a operand) (b operand)) cmp (make cmp :cond ,c :a a :b b))
        (defop ,op ((a operand) (b f32)) cmp (make cmp :cond ,c :a a :b (fimm b)))
        (defop ,op ((a operand) (b u32)) cmp (make cmp :cond ,c :a a :b (uimm b)))))
@@ -171,7 +171,7 @@
 
 ;; ------------------------------------------------------------ emitting ---
 
-(defn emit-op ((d operand) (e expr) (pred u8)) void
+(defn- emit-op ((d operand) (e expr) (pred u8)) void
   (let ((i (new-inst e.op)))
     (set i.d d)
     (set i.a e.a)
@@ -180,7 +180,7 @@
     (set i.pred pred)
     (emit i)))
 
-(defn emit-cmp ((fl flag) (c cmp)) void
+(defn- emit-cmp ((fl flag) (c cmp)) void
   (let ((i (new-inst OP-CMP)))
     (set i.cond c.cond)
     (set i.flag fl.n)
@@ -208,12 +208,12 @@
 (defn new-label () label (make label :pos -1))
 (defn here () label (make label :pos (cast i32 prog.n)))   ; bound to the next instruction
 
-(defn bind-label ((l (ptr label))) void
+(defn- bind-label ((l (ptr label))) void
   (set l.pos (cast i32 prog.n))
   (for (i u32 0 l.nfix) (set (. (aref prog.code (aref l.fix i)) target) l.pos))
   (set l.nfix 0))
 
-(defn kjump ((op u8) (fl flag) (l (ptr label))) void
+(defn- kjump ((op u8) (fl flag) (l (ptr label))) void
   (let ((i (new-inst op)))
     (set i.flag fl.n)
     (set i.target l.pos)

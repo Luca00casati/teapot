@@ -3,11 +3,12 @@
 ; shared with the GPU kernel.
 
 (c-include "stdlib.h" "string.h" "math.h")
-(include "prelude.lsp" "vec.lsp")
+(import "prelude" :all)
+(import "vec" :all)
 
 ;; Classic 10 patch / 127 control point form; rim, body, lid and bottom are
 ;; mirrored into 4 quadrants, handle and spout into 2 → 32 bicubic patches.
-(def patches (array (array i32 16) 10)
+(def- patches (array (array i32 16) 10)
   (make (array (array i32 16) 10)
       (make (array i32 16) 102 103 104 105 4 5 6 7 8 9 10 11 12 13 14 15) ; rim
       (make (array i32 16) 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27) ; body
@@ -22,7 +23,7 @@
 
 ; as written in the original data: decimal → f64 → f32 at use, as C rounds a
 ; double literal into a float array
-(def cpdata (array (array f64 3) 127)
+(def- cpdata (array (array f64 3) 127)
   (make (array (array f64 3) 127)
       (make (array f64 3) 0.2 0.0 2.7) (make (array f64 3) 0.2 -0.112 2.7)
       (make (array f64 3) 0.112 -0.2 2.7) (make (array f64 3) 0.0 -0.2 2.7)
@@ -89,20 +90,20 @@
       (make (array f64 3) 1.425 -0.798 0.0) (make (array f64 3) 0.798 -1.425 0.0)
       (make (array f64 3) 0.0 -1.425 0.0)))
 
-(const TESS 24)                          ; quads per patch edge
+(const- TESS 24)                          ; quads per patch edge
 
 (struct tri (v0 v3) (e1 v3) (e2 v3) (i0 u32) (i1 u32) (i2 u32))
 ; count = 0: an interior node whose children are at first and first + 1
 (struct node (bmin v3) (bmax v3) (first u32) (count u32))
 
-(struct scene
+(struct model
   (vpos (ptr v3)) (vnrm (ptr v3)) (nv u32)
   (tris (ptr tri)) (ntri u32)
   (nodes (ptr node)) (nnode u32)
   (tidx (ptr u32)))                      ; triangle indices in leaf order
 
 ; Bernstein basis and its derivative at t
-(defn bern ((t f32) (b (ptr f32)) (d (ptr f32))) void
+(defn- bern ((t f32) (b (ptr f32)) (d (ptr f32))) void
   (let ((s (- 1.0 t)))
     (set (aref b 0) (* s s s))
     (set (aref b 1) (* 3.0 t s s))
@@ -114,7 +115,7 @@
     (set (aref d 3) (* 3.0 t t))))
 
 ; point and the two tangents of a bicubic patch (cp: 4x4 control points)
-(defn eval-patch ((cp (ptr v3)) (u f32) (v f32) (p (ptr v3)) (du (ptr v3)) (dv (ptr v3))) void
+(defn- eval-patch ((cp (ptr v3)) (u f32) (v f32) (p (ptr v3)) (du (ptr v3)) (dv (ptr v3))) void
   (let ((bu (array f32 4)) (du_ (array f32 4)) (bv (array f32 4)) (dv_ (array f32 4))
         (pp (vec3 0.0 0.0 0.0)) (pu pp) (pv pp))
     (bern u bu du_)
@@ -129,10 +130,10 @@
     (set (deref du) pu)
     (set (deref dv) pv)))
 
-(defn centroid ((t (ptr tri))) v3
+(defn- centroid ((t (ptr tri))) v3
   (+ t.v0 (* (+ t.e1 t.e2) (/ 1.0 3.0))))
 
-(defn build-mesh ((s (ptr scene))) void
+(defn- build-mesh ((s (ptr model))) void
   (let ((npatch u64 (+ (* 6 4) (* 4 2)))
         (quad (make (array f32 8) 1.0 1.0 1.0 -1.0 -1.0 -1.0 -1.0 1.0)))
     (set s.vpos (cast (ptr v3) (malloc (* (sizeof v3) npatch (+ TESS 1) (+ TESS 1)))))
@@ -176,23 +177,23 @@
 
 ;; -------------------------------------------------------------- BVH ---
 
-(const BINS 16)
+(const- BINS 16)
 
-(defn bin-of ((c f32) (lo f32) (span f32)) i32
+(defn- bin-of ((c f32) (lo f32) (span f32)) i32
   (let ((b (cast i32 (* (/ (- c lo) span) (cast f32 BINS)))))
     (if (< b 0) 0 (if (> b (- BINS 1)) (- BINS 1) b))))
 
-(defn area ((e v3)) f32 (+ (* e.x e.y) (* e.y e.z) (* e.z e.x)))
+(defn- area ((e v3)) f32 (+ (* e.x e.y) (* e.y e.z) (* e.z e.x)))
 
 ; the median split's comparator (qsort has no context argument)
-(def sort-scene (ptr scene) null)
-(def sort-axis i32 0)
-(defn cmp-tri ((pa (ptr void)) (pb (ptr void))) i32
+(def- sort-scene (ptr model) null)
+(def- sort-axis i32 0)
+(defn- cmp-tri ((pa (ptr void)) (pb (ptr void))) i32
   (let ((ca (axis (centroid (addr (aref sort-scene.tris (deref (cast (ptr u32) pa))))) sort-axis))
         (cb (axis (centroid (addr (aref sort-scene.tris (deref (cast (ptr u32) pb))))) sort-axis)))
     (- (cast i32 (> ca cb)) (cast i32 (< ca cb)))))
 
-(defn build-node ((s (ptr scene)) (ni u32) (first u32) (count u32)) void
+(defn- build-node ((s (ptr model)) (ni u32) (first u32) (count u32)) void
   (let ((big (vec3 1e30 1e30 1e30)) (bmin big) (bmax (- big)) (cmin bmin) (cmax bmax))
     (for (k first (+ first count))
       (let ((t (addr (aref s.tris (aref s.tidx k))))
@@ -261,8 +262,8 @@
         (build-node s (+ l 1) (+ first mid) (- count mid))))))
 
 ; tessellate the teapot and build the SAH BVH
-(defn scene-build () scene
-  (let ((s (make scene)))
+(defn build () model
+  (let ((s (make model)))
     (build-mesh (addr s))
     (set s.tidx (cast (ptr u32) (malloc (* (sizeof u32) (cast u64 s.ntri)))))
     (for (i u32 0 s.ntri) (set (aref s.tidx i) i))
@@ -278,15 +279,15 @@
 ;   node (32 B):  bmin.xyz, skip (u32) | bmax.xyz, first_tri << 3 | count (u32, 0 = interior)
 ;   triangle:     Havel-Herout planes N,d | N1,d1 | N2,d2 | n0 | n1-n0 | n2-n0 | geometric normal
 
-(defn layout-bytes ((s (ptr scene))) u64 (* (cast u64 s.nnode) 32))
-(defn blob-bytes ((s (ptr scene))) u64 (+ (* 8 (layout-bytes s)) (* (cast u64 s.ntri) 128)))
+(defn layout-bytes ((s (ptr model))) u64 (* (cast u64 s.nnode) 32))
+(defn blob-bytes ((s (ptr model))) u64 (+ (* 8 (layout-bytes s)) (* (cast u64 s.ntri) 128)))
 
-(defn put3 ((r (ptr u32)) (at u32) (v v3)) void
+(defn- put3 ((r (ptr u32)) (at u32) (v v3)) void
   (set (aref r at) (bitcast u32 v.x))
   (set (aref r (+ at 1)) (bitcast u32 v.y))
   (set (aref r (+ at 2)) (bitcast u32 v.z)))
 
-(defn write-blob ((s (ptr scene)) (dst (ptr u32))) void
+(defn write-blob ((s (ptr model)) (dst (ptr u32))) void
   (let ((n s.nnode) (layout (cast u32 (/ (layout-bytes s) 4))) (nodes s.nodes)
         (order (cast (ptr u32) (malloc (* 4 (cast u64 n))))) (skip (cast (ptr u32) (malloc (* 4 (cast u64 n)))))
         (size (cast (ptr u32) (malloc (* 4 (cast u64 n))))) (stack (cast (ptr u32) (malloc (* 4 (cast u64 n))))))
@@ -341,7 +342,7 @@
 (struct camera (pos v3) (fwd v3) (right v3) (up v3) (tan f32))   ; tan = tan(fov_y / 2)
 
 ; on a circle around the teapot; 0 = the original viewpoint
-(defn camera-orbit ((angle f32)) camera
+(defn orbit ((angle f32)) camera
   (let ((centre (vec3 0.2 0.0 0.0)) (look (vec3 0.2 1.25 0.0))
         (radius f32 9.44) (height f32 4.4) (a0 f32 0.635)          ; a0 = atan2(5.6, 7.6)
         (pos (vec3 (+ centre.x (* radius (sinf (+ a0 angle)))) height (+ centre.z (* radius (cosf (+ a0 angle))))))

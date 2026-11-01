@@ -16,10 +16,12 @@
 ;   - an inverted any16h predicate applies after the reduction ("no lane")
 
 (c-include "stdio.h" "stdlib.h" "string.h")
-(include "layers.lsp")
+(import "prelude" :all)
+(import "kir" :all)
+(import "layers" :all)
 
 (const RF-ARF 0) (const RF-GRF 1) (const RF-IMM 3)
-(const GT-UD 0) (const GT-D 1) (const GT-UW 2) (const GT-W 3) (const GT-F 7)
+(const TY-UD 0) (const TY-D 1) (const TY-UW 2) (const TY-W 3) (const TY-F 7)
 (const EU-MOV 1) (const EU-SEL 2) (const EU-AND 5) (const EU-OR 6) (const EU-XOR 7) (const EU-SHR 8)
 (const EU-SHL 9) (const EU-CMP 16) (const EU-JMPI 32) (const EU-SEND 49) (const EU-MATH 56)
 (const EU-ADD 64) (const EU-MUL 65) (const EU-FRC 67) (const EU-RNDD 69)
@@ -31,37 +33,37 @@
 (const G-SC1 17) (const G-VEC 18) (const G-VEC-END 122) (const G-ST 122) (const G-HDR2 125) (const G-EOT 127)
 
 ; one EU operand; (gnull ty) is the null register
-(struct gop (file u32) (ty u32) (nr u32) (sub u32) (vs u32) (w u32) (hs u32) (neg u32) (imm u32))
+(struct- gop (file u32) (ty u32) (nr u32) (sub u32) (vs u32) (w u32) (hs u32) (neg u32) (imm u32))
 
-(defn gnull ((ty u32)) gop (make gop :file RF-ARF :ty ty :w 1))
-(defn gvec ((r u32) (ty u32)) gop (make gop :file RF-GRF :ty ty :nr r :vs 8 :w 8 :hs 1))   ; SIMD16 in r:r+1
-(defn gsc ((r u32) (c u32) (ty u32)) gop (make gop :file RF-GRF :ty ty :nr r :sub (* c 4) :w 1)) ; dword c of r
-(defn gimm ((v u32) (ty u32)) gop (make gop :file RF-IMM :ty ty :imm v))
+(defn- gnull ((ty u32)) gop (make gop :file RF-ARF :ty ty :w 1))
+(defn- gvec ((r u32) (ty u32)) gop (make gop :file RF-GRF :ty ty :nr r :vs 8 :w 8 :hs 1))   ; SIMD16 in r:r+1
+(defn- gsc ((r u32) (c u32) (ty u32)) gop (make gop :file RF-GRF :ty ty :nr r :sub (* c 4) :w 1)) ; dword c of r
+(defn- gimm ((v u32) (ty u32)) gop (make gop :file RF-IMM :ty ty :imm v))
 
 ; bits lo..hi of the 128-bit instruction in[0..3] = v
-(defn setb ((in (ptr u32)) (hi u32) (lo u32) (v u32)) void
+(defn- setb ((in (ptr u32)) (hi u32) (lo u32) (v u32)) void
   (let ((x v))
     (for (b lo (+ hi 1))
       (let ((w (/ b 32)) (s (% b 32)))
         (set (aref in w) (| (& (aref in w) (~ (<< 1 s))) (<< (& x 1) s)))
         (set x (>> x 1))))))
 
-(defn enc-vs ((v u32)) u32 (cond ((= v 0) 0) ((= v 1) 1) ((= v 2) 2) ((= v 4) 3) ((= v 8) 4) ((= v 16) 5) (else 6)))
-(defn enc-w ((w u32)) u32 (cond ((= w 1) 0) ((= w 2) 1) ((= w 4) 2) ((= w 8) 3) (else 4)))
-(defn enc-hs ((h u32)) u32 (cond ((= h 0) 0) ((= h 1) 1) ((= h 2) 2) (else 3)))
-(defn enc-es ((e u32)) u32 (cond ((= e 1) 0) ((= e 2) 1) ((= e 4) 2) ((= e 8) 3) (else 4)))
+(defn- enc-vs ((v u32)) u32 (cond ((= v 0) 0) ((= v 1) 1) ((= v 2) 2) ((= v 4) 3) ((= v 8) 4) ((= v 16) 5) (else 6)))
+(defn- enc-w ((w u32)) u32 (cond ((= w 1) 0) ((= w 2) 1) ((= w 4) 2) ((= w 8) 3) (else 4)))
+(defn- enc-hs ((h u32)) u32 (cond ((= h 0) 0) ((= h 1) 1) ((= h 2) 2) (else 3)))
+(defn- enc-es ((e u32)) u32 (cond ((= e 1) 0) ((= e 2) 1) ((= e 4) 2) ((= e 8) 3) (else 4)))
 
 ; modifiers of one EU instruction
-(struct mods (pred u32) (pinv u32) (flag u32) (cmod u32) (sat u32) (es u32) (nomask u32))
-(def MODS mods (make mods :es 16))
-(def SCALAR-MODS mods (make mods :es 1 :nomask 1))
-(def HEADER-MODS mods (make mods :es 8 :nomask 1))
+(struct- mods (pred u32) (pinv u32) (flag u32) (cmod u32) (sat u32) (es u32) (nomask u32))
+(def- MODS mods (make mods :es 16))
+(def- SCALAR-MODS mods (make mods :es 1 :nomask 1))
+(def- HEADER-MODS mods (make mods :es 8 :nomask 1))
 
 ; the machine code: 4 dwords per instruction
-(struct encoder (code (ptr u32)) (n u32) (cap u32))
+(struct- encoder (code (ptr u32)) (n u32) (cap u32))
 (def enc encoder)
 
-(defn eu-emit ((opc u32) (m mods) (d gop) (s0 gop) (s1 gop) (nsrc u32) (func u32)) void
+(defn- eu-emit ((opc u32) (m mods) (d gop) (s0 gop) (s1 gop) (nsrc u32) (func u32)) void
   (when (= enc.n enc.cap)
     (set enc.cap (if (= enc.cap 0) 4096 (* enc.cap 2)))
     (set enc.code (cast (ptr u32) (realloc enc.code (* 16 (cast u64 enc.cap))))))
@@ -108,14 +110,14 @@
               (setb i 120 117 (enc-vs s1.vs)))))
     (+= enc.n 1)))
 
-(defn op1 ((opc u32) (m mods) (d gop) (s gop)) void (eu-emit opc m d s (gnull GT-UD) 1 0))
-(defn op2 ((opc u32) (m mods) (d gop) (a gop) (b gop)) void (eu-emit opc m d a b 2 0))
-(defn eu-mov ((m mods) (d gop) (s gop)) void (op1 EU-MOV m d s))
-(defn eu-send ((sfid u32) (dst gop) (src u32) (desc u32)) void
-  (let ((m MODS)) (set m.nomask 1) (eu-emit EU-SEND m dst (gvec src GT-UD) (gimm desc GT-UD) 2 sfid)))
+(defn- op1 ((opc u32) (m mods) (d gop) (s gop)) void (eu-emit opc m d s (gnull TY-UD) 1 0))
+(defn- op2 ((opc u32) (m mods) (d gop) (a gop) (b gop)) void (eu-emit opc m d a b 2 0))
+(defn- eu-mov ((m mods) (d gop) (s gop)) void (op1 EU-MOV m d s))
+(defn- eu-send ((sfid u32) (dst gop) (src u32) (desc u32)) void
+  (let ((m MODS)) (set m.nomask 1) (eu-emit EU-SEND m dst (gvec src TY-UD) (gimm desc TY-UD) 2 sfid)))
 
-(defn gen-op ((o operand)) gop
-  (let ((ty u32 (if (= o.ty TY-F) GT-F GT-UD)) (i (cast u32 o.idx)) (g (gnull ty)))
+(defn- gen-op ((o operand)) gop
+  (let ((ty u32 (if (= o.ty kir::TY-F) TY-F TY-UD)) (i (cast u32 o.idx)) (g (gnull ty)))
     (cond ((= o.kind K-V) (set g (gvec (+ G-VEC (* 2 i)) ty)))
           ((= o.kind K-S) (set g (gsc (if (< i 8) G-SC0 G-SC1) (% i 8) ty)))
           ((= o.kind K-U) (set g (gsc (+ G-UNI (/ i 8)) (% i 8) ty)))
@@ -130,19 +132,19 @@
     (set g.neg (cast u32 o.neg))
     g))
 
-(defn alu-op ((op u8)) u32
+(defn- alu-op ((op u8)) u32
   (cond ((= op OP-MOV) EU-MOV) ((= op OP-ADD) EU-ADD) ((= op OP-MUL) EU-MUL) ((= op OP-AND) EU-AND)
         ((= op OP-OR) EU-OR) ((= op OP-XOR) EU-XOR) ((= op OP-SHL) EU-SHL) ((= op OP-SHR) EU-SHR)
         ((= op OP-FLOOR) EU-RNDD) (else EU-FRC)))
-(defn math-fn ((op u8)) u32
+(defn- math-fn ((op u8)) u32
   (cond ((= op OP-INV) MF-INV) ((= op OP-SQRT) MF-SQRT) ((= op OP-RSQ) MF-RSQ) ((= op OP-EXP2) MF-EXP) (else MF-POW)))
-(defn cond-mod ((c u8)) u32
+(defn- cond-mod ((c u8)) u32
   (cond ((= c C-EQ) CM-Z) ((= c C-NE) CM-NZ) ((= c C-GT) CM-G) ((= c C-GE) CM-GE) ((= c C-LT) CM-L) (else CM-LE)))
-(defn is-jump ((op u8)) bool (and (>= op OP-JMP) (<= op OP-JALL)))
+(defn- is-jump ((op u8)) bool (and (>= op OP-JMP) (<= op OP-JALL)))
 
 ;; ------------------------------------------------------- IR → EU code ---
 
-(defn gen75-compile ((p (ptr program))) bool
+(defn compile ((p (ptr program))) bool
   (when (> (+ G-VEC (* 2 p.nvec)) G-VEC-END)
     (fprintf stderr "gen75: kernel needs %u vector registers, only %d fit\n" p.nvec (/ (- G-VEC-END G-VEC) 2))
     (return false))
@@ -150,8 +152,8 @@
   (let ((at (cast (ptr u32) (malloc (* 4 (+ (cast u64 p.n) 1)))))  ; first EU instruction of each IR instruction
         (hdr-toggle false))
     ; load headers start as a copy of the thread payload; only .2 changes
-    (eu-mov HEADER-MODS (gvec G-HDR GT-UD) (gvec 0 GT-UD))
-    (eu-mov HEADER-MODS (gvec G-HDR2 GT-UD) (gvec 0 GT-UD))
+    (eu-mov HEADER-MODS (gvec G-HDR TY-UD) (gvec 0 TY-UD))
+    (eu-mov HEADER-MODS (gvec G-HDR2 TY-UD) (gvec 0 TY-UD))
     (for (i u32 0 p.n)
       (let ((k (addr (aref p.code i)))
             (scalar (if (= k.op OP-CMP) (and (not (is-vector k.a)) (not (is-vector k.b))) (= k.d.kind K-S)))
@@ -169,11 +171,11 @@
           ((or (= k.op OP-MOV) (= k.op OP-FLOOR) (= k.op OP-FRAC)) (op1 (alu-op k.op) m d a))
           ((= k.op OP-MUL)
            ; 32x16 integer multiply: a uint immediate of 16 bits is encoded as UW
-           (when (and (= b.file RF-IMM) (= b.ty GT-UD))
+           (when (and (= b.file RF-IMM) (= b.ty TY-UD))
              (when (> b.imm 0xffff)
                (fprintf stderr "gen75: IR %u: 32-bit integer multiply\n" i)
                (return false))
-             (set b.ty GT-UW)
+             (set b.ty TY-UW)
              (set b.imm (| b.imm (<< b.imm 16))))
            (op2 EU-MUL m d a b))
           ((or (= k.op OP-MIN) (= k.op OP-MAX))
@@ -182,41 +184,41 @@
           ((or (= k.op OP-ADD) (= k.op OP-AND) (= k.op OP-OR) (= k.op OP-XOR) (= k.op OP-SHL) (= k.op OP-SHR))
            (op2 (alu-op k.op) m d a b))
           ((or (= k.op OP-INV) (= k.op OP-SQRT) (= k.op OP-RSQ) (= k.op OP-EXP2))
-           (eu-emit EU-MATH m d a (gnull GT-F) 2 (math-fn k.op)))
+           (eu-emit EU-MATH m d a (gnull TY-F) 2 (math-fn k.op)))
           ((= k.op OP-POW) (eu-emit EU-MATH m d a b 2 MF-POW))
           ((= k.op OP-CMP)
            (set m.cmod (cond-mod k.cond))
            (set m.flag (* (cast u32 k.flag) 2))
            (op2 EU-CMP m (gnull a.ty) a b))
           ((is-jump k.op)
-           (let ((ip (make gop :file RF-ARF :ty GT-UD :nr 0xA0 :vs 4 :w 1)) (j SCALAR-MODS))
+           (let ((ip (make gop :file RF-ARF :ty TY-UD :nr 0xA0 :vs 4 :w 1)) (j SCALAR-MODS))
              (set j.flag (* (cast u32 k.flag) 2))
              (set j.pred (cond ((= k.op OP-JMP) 0) ((= k.op OP-JIF) PR-NORMAL) ((= k.op OP-JALL) PR-ALL16H) (else PR-ANY16H)))
              (set j.pinv (cast u32 (= k.op OP-JNONE)))
-             (op2 EU-JMPI j ip ip (gimm 0 GT-D))))
+             (op2 EU-JMPI j ip ip (gimm 0 TY-D))))
           ((= k.op OP-LOAD)
            ; constant-cache OWord block read of 4 owords from binding table entry 0
            (let ((h u32 (if hdr-toggle G-HDR2 G-HDR)))
              (set hdr-toggle (not hdr-toggle))
-             (op2 EU-ADD SCALAR-MODS (gsc h 2 GT-UD) a b)
+             (op2 EU-ADD SCALAR-MODS (gsc h 2 TY-UD) a b)
              (when (!= k.off 0)
-               (op2 EU-ADD SCALAR-MODS (gsc h 2 GT-UD) (gsc h 2 GT-UD) (gimm k.off GT-UD)))
-             (eu-send SFID-CONST-CACHE (gvec (+ G-BLK (* 2 (cast u32 k.target))) GT-UW) h
+               (op2 EU-ADD SCALAR-MODS (gsc h 2 TY-UD) (gsc h 2 TY-UD) (gimm k.off TY-UD)))
+             (eu-send SFID-CONST-CACHE (gvec (+ G-BLK (* 2 (cast u32 k.target))) TY-UW) h
                       (| (<< 1 25) (<< 2 20) (<< 1 19) (<< 3 8)))))
           ((= k.op OP-STORE)
            ; media block write of the 4x4 tile: 16 bytes wide, 4 rows
-           (eu-mov HEADER-MODS (gvec G-ST GT-UD) (gvec 0 GT-UD))
-           (op2 EU-SHL SCALAR-MODS (gsc G-ST 0 GT-UD) (gsc 0 1 GT-UD) (gimm 4 GT-UD))
-           (op2 EU-SHL SCALAR-MODS (gsc G-ST 1 GT-UD) (gsc 0 6 GT-UD) (gimm 2 GT-UD))
-           (eu-mov SCALAR-MODS (gsc G-ST 2 GT-UD) (gimm (| (<< 3 16) 15) GT-UD))
+           (eu-mov HEADER-MODS (gvec G-ST TY-UD) (gvec 0 TY-UD))
+           (op2 EU-SHL SCALAR-MODS (gsc G-ST 0 TY-UD) (gsc 0 1 TY-UD) (gimm 4 TY-UD))
+           (op2 EU-SHL SCALAR-MODS (gsc G-ST 1 TY-UD) (gsc 0 6 TY-UD) (gimm 2 TY-UD))
+           (eu-mov SCALAR-MODS (gsc G-ST 2 TY-UD) (gimm (| (<< 3 16) 15) TY-UD))
            (let ((raw a) (all MODS))
-             (set raw.ty GT-UD)                 ; raw bits, no conversion
+             (set raw.ty TY-UD)                 ; raw bits, no conversion
              (set all.nomask 1)
-             (eu-mov all (gvec (+ G-ST 1) GT-UD) raw))
-           (eu-send SFID-RENDER-CACHE (gnull GT-UD) G-ST (| (<< 3 25) (<< 1 19) (<< 10 14) (cast u32 k.target))))
+             (eu-mov all (gvec (+ G-ST 1) TY-UD) raw))
+           (eu-send SFID-RENDER-CACHE (gnull TY-UD) G-ST (| (<< 3 25) (<< 1 19) (<< 10 14) (cast u32 k.target))))
           (else                                 ; END
-           (eu-mov HEADER-MODS (gvec G-EOT GT-UD) (gvec 0 GT-UD))
-           (eu-send SFID-THREAD-SPAWNER (gnull GT-UD) G-EOT 0x82000010)))))
+           (eu-mov HEADER-MODS (gvec G-EOT TY-UD) (gvec 0 TY-UD))
+           (eu-send SFID-THREAD-SPAWNER (gnull TY-UD) G-EOT 0x82000010)))))
     (set (aref at p.n) enc.n)
     (for (i u32 0 p.n)
       (let ((k (addr (aref p.code i))))
@@ -237,28 +239,28 @@
 
 ;; ------------------------------------------------------ command stream ---
 
-(struct gen75 (threads u32) (drv (ptr driver)) (batch buffer) (batch-len u32))
-(defn gen75-of ((h (ptr hardware))) (ptr gen75) (cast (ptr gen75) h.state))
+(struct- gen75 (threads u32) (drv (ptr driver)) (batch buffer) (batch-len u32))
+(defn- state-of ((h (ptr hardware))) (ptr gen75) (cast (ptr gen75) h.state))
 
 ; batch layout: commands at 0, state from 4096
 (const OFF-CURBE 4096) (const OFF-IDD (+ 4096 512)) (const OFF-BT (+ 4096 1024))
 (const OFF-SS (+ 4096 1088)) (const OFF-KERNEL 8192)
 
 ; the command stream being written: dwords, and where the batch's own address goes
-(struct cmdbuf (mem (ptr u32)) (n u32) (self (array u32 3)) (nself u32))
-(defn put ((cb (ptr cmdbuf)) (x u32)) void
+(struct- cmdbuf (mem (ptr u32)) (n u32) (self (array u32 3)) (nself u32))
+(defn- put ((cb (ptr cmdbuf)) (x u32)) void
   (set (aref cb.mem cb.n) x)
   (+= cb.n 1))
-(defmacro out (cb &rest xs) `(do ,@(map (lambda (x) `(put ,cb ,x)) xs)))
-(defn reloc-self ((cb (ptr cmdbuf))) void   ; relocated to the batch itself in setup
+(defmacro- out (cb &rest xs) `(do ,@(map (lambda (x) `(put ,cb ,x)) xs)))
+(defn- reloc-self ((cb (ptr cmdbuf))) void   ; relocated to the batch itself in setup
   (set (aref cb.self cb.nself) cb.n)
   (+= cb.nself 1)
   (put cb 1))
 
-(defn gen75-hw-compile ((h (ptr hardware)) (p (ptr program))) bool (gen75-compile p))
+(defn- hw-compile ((h (ptr hardware)) (p (ptr program))) bool (compile p))
 
-(defn gen75-setup ((h (ptr hardware)) (drv (ptr driver)) (tiles-x u32) (tiles-y u32) (bufs (ptr buffer))) bool
-  (let ((g (gen75-of h)) (batch (addr g.batch)))
+(defn- setup ((h (ptr hardware)) (drv (ptr driver)) (tiles-x u32) (tiles-y u32) (bufs (ptr buffer))) bool
+  (let ((g (state-of h)) (batch (addr g.batch)))
     (unless (drv.alloc drv 65536 batch) (return false))
     (drv.sync drv batch true)
     (memset batch.map 0 batch.size)
@@ -329,14 +331,14 @@
     (set g.drv drv)
     true))
 
-(defn gen75-run ((h (ptr hardware)) (uniforms (ptr u32))) bool
-  (let ((g (gen75-of h)) (batch (addr g.batch)))
+(defn- run ((h (ptr hardware)) (uniforms (ptr u32))) bool
+  (let ((g (state-of h)) (batch (addr g.batch)))
     (g.drv.sync g.drv batch true)        ; the CURBE lives in the batch: waits for the GPU
     (memcpy (+ batch.map OFF-CURBE) uniforms (* 32 4))
     (g.drv.exec g.drv batch g.batch-len)))
 
 ; does this layer drive the chip? A description goes to desc[64]
-(defn gen75-probe ((id u32) (desc (ptr i8))) (ptr hardware)
+(defn probe ((id u32) (desc (ptr i8))) (ptr hardware)
   (let ((fam (& id 0xff00)))
     (unless (or (= fam 0x0400) (= fam 0x0a00) (= fam 0x0c00) (= fam 0x0d00)) (return null))
     (let ((gt (& (>> id 4) 3))
@@ -344,5 +346,5 @@
           (h (cast (ptr hardware) (calloc 1 (sizeof hardware)))))
       (set g.threads (<< 70 gt))
       (snprintf desc 64 "Haswell GT%u [8086:%04x]" (+ gt 1) id)
-      (set (deref h) (make hardware :name "gen75" :state g :compile gen75-hw-compile :setup gen75-setup :run gen75-run))
+      (set (deref h) (make hardware :name "gen75" :state g :compile hw-compile :setup setup :run run))
       h)))
