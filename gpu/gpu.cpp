@@ -9,9 +9,8 @@
 // This file picks a driver that finds a GPU some hardware layer accepts,
 // compiles the kernel, uploads the scene, and fills the uniforms per pass.
 
-#include <cstdio>
-#include <cstring>
-#include <vector>
+#include <stdio.h>
+#include <string.h>
 
 #include "../backend.h"
 #include "layers.h"
@@ -29,8 +28,8 @@ public:
 
 private:
     // destroyed in reverse: buffers, then the hardware (its batch), then the driver
-    std::unique_ptr<Driver> drv_;
-    std::unique_ptr<Hardware> hw_;
+    ml::Box<Driver> drv_;
+    ml::Box<Hardware> hw_;
     Buffer buf_[3];            // scene, rgb, depth
     int w_, h_, w4_ = 0;
     size_t layout_;
@@ -38,20 +37,20 @@ private:
 };
 
 bool GpuBackend::init(const Scene &s) {
-    std::unique_ptr<Driver> drivers[] = {make_i915()};
-    std::unique_ptr<Hardware> layers[] = {make_gen75()};
+    ml::Box<Driver> drivers[] = {make_i915()};
+    ml::Box<Hardware> layers[] = {make_gen75()};
     uint32_t chip = 0;
-    std::string path, desc;
+    char path[64] = "", desc[64] = "";
     for (auto &d : drivers) {
         auto accept = [&](uint32_t id) {
             for (auto &l : layers)
-                if (l && l->probe(id, desc)) { hw_ = std::move(l); return true; }
+                if (l && l->probe(id, desc)) { hw_ = ml::move(l); return true; }
             return false;
         };
-        if (d->open(accept, chip, path)) { drv_ = std::move(d); break; }
+        if (d->open(accept, chip, path)) { drv_ = ml::move(d); break; }
     }
     if (!drv_) { fprintf(stderr, "gpu: no supported GPU found\n"); return false; }
-    fprintf(stderr, "gpu: %s %s (%s, %s)\n", path.c_str(), desc.c_str(), drv_->name(), hw_->name());
+    fprintf(stderr, "gpu: %s %s (%s, %s)\n", path, desc, drv_->name(), hw_->name());
 
     kir::Program prog;
 #ifdef TEAPOT_GPU_DEBUG
@@ -111,8 +110,8 @@ bool GpuBackend::collect(uint32_t *rgb, float *depth) {
 }  // namespace
 }  // namespace gpu
 
-std::unique_ptr<Backend> open_gpu(const Scene &scene, int w, int h) {
-    auto b = std::unique_ptr<gpu::GpuBackend>(new gpu::GpuBackend(scene, w, h));
+ml::Box<Backend> open_gpu(const Scene &scene, int w, int h) {
+    auto b = ml::Box<gpu::GpuBackend>(new gpu::GpuBackend(scene, w, h));
     if (!b->init(scene)) return nullptr;
     return b;
 }

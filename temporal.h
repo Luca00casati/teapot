@@ -2,9 +2,8 @@
 // blended with the previous ones, reprojected through the per-pixel depth.
 #pragma once
 
-#include <vector>
-
 #include "display.h"
+#include "minlib.h"
 #include "scene.h"
 
 class Temporal {
@@ -21,8 +20,8 @@ private:
     const float *depth_ = nullptr;
     View view_{}, hist_view_{};
     // history: linear RGB + sample count, and view-space depth (1e9 = sky)
-    std::vector<float> hist_[2], hist_depth_[2];
-    std::vector<float> sx_, sy_, il_;  // pixel-centre ray offsets and 1 / ray length
+    ml::Vec<float> hist_[2], hist_depth_[2];
+    ml::Vec<float> sx_, sy_, il_;  // pixel-centre ray offsets and 1 / ray length
     int cur_ = 0;
     bool ok_ = false;
 };

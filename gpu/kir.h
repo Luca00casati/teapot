@@ -32,10 +32,11 @@
 // Compound expressions such as `a * b + c` deliberately do not compile.
 #pragma once
 
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <vector>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "../minlib.h"
 
 namespace kir {
 
@@ -95,7 +96,7 @@ struct Inst {
 };
 
 struct Program {
-    std::vector<Inst> code;
+    ml::Vec<Inst> code;
     int nvec = 0;                           // vector registers allocated
     int here() const { return (int)code.size(); }
     int emit(const Inst &in) {
@@ -196,7 +197,7 @@ inline Reg vreg() { return V(cur->nvec++); }
 // jump targets; a label may be used before it is bound
 struct Label {
     int pos = -1;
-    std::vector<int> fixups;
+    ml::Vec<int> fixups;
     void bind() {
         pos = cur->here();
         for (int i : fixups) cur->code[i].target = pos;

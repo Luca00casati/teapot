@@ -2,8 +2,8 @@
 // ioctls (no libdrm).
 #pragma once
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <drm/drm.h>
 #include <drm/drm_mode.h>

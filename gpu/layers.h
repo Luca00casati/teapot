@@ -8,12 +8,9 @@
 // differs, another Driver); the ray tracer itself does not change.
 #pragma once
 
-#include <cstdint>
-#include <functional>
-#include <memory>
-#include <string>
-#include <utility>
+#include <stdint.h>
 
+#include "../minlib.h"
 #include "kir.h"
 
 namespace gpu {
@@ -24,7 +21,7 @@ class Driver;
 class Buffer {
 public:
     Buffer() = default;
-    Buffer(Buffer &&o) noexcept { *this = std::move(o); }
+    Buffer(Buffer &&o) noexcept { *this = ml::move(o); }
     Buffer &operator=(Buffer &&o) noexcept;
     ~Buffer();
     Driver *drv = nullptr;
@@ -38,7 +35,7 @@ public:
     virtual ~Driver() = default;
     virtual const char *name() const = 0;
     // open the first device whose chip id `accept` takes
-    virtual bool open(const std::function<bool(uint32_t chip_id)> &accept, uint32_t &chip_id, std::string &path) = 0;
+    virtual bool open(const ml::FnRef<bool(uint32_t)> &accept, uint32_t &chip_id, char (&path)[64]) = 0;
     virtual bool alloc(Buffer &b, uint64_t size) = 0;         // zeroed and mapped
     virtual void release(Buffer &b) = 0;                      // (called by ~Buffer)
     virtual void sync(const Buffer &b, bool write) = 0;       // make the CPU view coherent; waits for the GPU
@@ -52,15 +49,15 @@ class Hardware {
 public:
     virtual ~Hardware() = default;
     virtual const char *name() const = 0;
-    virtual bool probe(uint32_t chip_id, std::string &desc) = 0;  // does this layer drive the chip?
+    virtual bool probe(uint32_t chip_id, char (&desc)[64]) = 0;  // does this layer drive the chip?
     virtual bool compile(const kir::Program &p) = 0;
     // bufs[0] scene, bufs[1..2] images of tiles_x*4 by tiles_y*4 dwords
     virtual bool setup(Driver &drv, int tiles_x, int tiles_y, Buffer *bufs) = 0;
     virtual bool run(const uint32_t *uniforms) = 0;              // queue the whole grid, return at once
 };
 
-std::unique_ptr<Driver> make_i915();
-std::unique_ptr<Hardware> make_gen75();
+ml::Box<Driver> make_i915();
+ml::Box<Hardware> make_gen75();
 
 inline Buffer &Buffer::operator=(Buffer &&o) noexcept {
     if (this != &o) {

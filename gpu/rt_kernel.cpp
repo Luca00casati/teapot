@@ -8,9 +8,7 @@
 
 #include "rt_kernel.h"
 
-#include <array>
-#include <cmath>
-#include <utility>
+#include <math.h>
 
 #include "../scene.h"
 
@@ -35,7 +33,7 @@ Vec3 vreg3() {
 template <size_t... I> struct seq {};
 template <size_t N, size_t... I> struct make_seq : make_seq<N - 1, N - 1, I...> {};
 template <size_t... I> struct make_seq<0, I...> { typedef seq<I...> type; };
-template <size_t... I> std::array<Reg, sizeof...(I)> vregs(seq<I...>) {
+template <size_t... I> ml::Arr<Reg, sizeof...(I)> vregs(seq<I...>) {
     return {((void)I, vreg())...};          // braced lists evaluate left to right
 }
 
@@ -51,7 +49,7 @@ private:
     const Reg HT = vreg();                                              // t
     const Vec3 HN = vreg3(), HG = vreg3();                              // interpolated / geometric normal
     const Reg HM = vreg();                                              // material: 0 miss, 1 teapot, 2 floor
-    const std::array<Reg, 11> t = vregs(make_seq<11>::type());  // temporaries
+    const ml::Arr<Reg, 11> t = vregs(make_seq<11>::type());  // temporaries
     // shading state that survives a traversal
     const Vec3 SP = vreg3(), SN = vreg3(), SG = vreg3(), SD = vreg3();
     const Reg SM = vreg();

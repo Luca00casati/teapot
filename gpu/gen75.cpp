@@ -15,11 +15,9 @@
 //     block loads are SIMD16
 //   - an inverted any16h predicate applies after the reduction ("no lane")
 
-#include <array>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <vector>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "layers.h"
 
@@ -74,10 +72,10 @@ Mods header_mods() { Mods m; m.es = 8; m.nomask = 1; return m; }
 
 class Encoder {
 public:
-    std::vector<std::array<uint32_t, 4>> code;
+    ml::Vec<ml::Arr<uint32_t, 4>> code;
 
     int emit(int opc, const Mods &m, Gop d, Gop s0, Gop s1 = gnull(), int nsrc = 2, int fn = 0) {
-        std::array<uint32_t, 4> a = {};
+        ml::Arr<uint32_t, 4> a = {};
         uint32_t *in = a.data();
         setb(in, 6, 0, opc);
         setb(in, 9, 9, m.nomask);
@@ -157,14 +155,12 @@ class Gen75 final : public Hardware {
 public:
     const char *name() const override { return "gen75"; }
 
-    bool probe(uint32_t id, std::string &desc) override {
+    bool probe(uint32_t id, char (&desc)[64]) override {
         uint32_t fam = id & 0xff00;
         if (fam != 0x0400 && fam != 0x0a00 && fam != 0x0c00 && fam != 0x0d00) return false;
         int gt = (id >> 4) & 3;
         threads_ = 70 << gt;
-        char s[64];
-        snprintf(s, sizeof s, "Haswell GT%d [8086:%04x]", gt + 1, id);
-        desc = s;
+        snprintf(desc, sizeof desc, "Haswell GT%d [8086:%04x]", gt + 1, id);
         return true;
     }
 
@@ -213,7 +209,7 @@ bool Gen75::compile(const kir::Program &p) {
     }
     Encoder &e = enc_;
     e.code.clear();
-    std::vector<int> at(p.code.size() + 1);  // first EU instruction of each IR instruction
+    ml::Vec<int> at(p.code.size() + 1);  // first EU instruction of each IR instruction
     bool hdr_toggle = false;
     // load headers start as a copy of the thread payload; only .2 changes
     e.mov(header_mods(), gvec(G_HDR, TY_UD), gvec(0, TY_UD));
@@ -395,6 +391,6 @@ bool Gen75::setup(Driver &drv, int tiles_x, int tiles_y, Buffer *bufs) {
 
 }  // namespace
 
-std::unique_ptr<Hardware> make_gen75() { return std::unique_ptr<Gen75>(new Gen75()); }
+ml::Box<Hardware> make_gen75() { return ml::Box<Gen75>(new Gen75()); }
 
 }  // namespace gpu

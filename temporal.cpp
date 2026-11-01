@@ -2,9 +2,13 @@
 
 #include "temporal.h"
 
-#include <thread>
+#include <pthread.h>
 
 #include "tone.h"
+
+// built before main: a function-local static would need the C++ runtime's init guard
+static const ToneLuts luts;
+const ToneLuts &tone() { return luts; }
 
 void Temporal::blend(const Target &frame, const float *depth, const Camera &cam, int threads) {
     int W = frame.w, H = frame.h;
@@ -20,9 +24,14 @@ void Temporal::blend(const Target &frame, const float *depth, const Camera &cam,
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++) il_[(size_t)y * W + x] = 1 / sqrtf(1 + sx_[x] * sx_[x] + sy_[y] * sy_[y]);
     }
-    std::vector<std::thread> th;
-    for (int i = 0; i < threads; i++) th.emplace_back(&Temporal::rows, this, H * i / threads, H * (i + 1) / threads);
-    for (auto &t : th) t.join();
+    struct Job { Temporal *t; int y0, y1; pthread_t id; };
+    ml::Vec<Job> jobs(threads);
+    auto run = [](void *p) -> void * { Job *j = (Job *)p; j->t->rows(j->y0, j->y1); return nullptr; };
+    for (int i = 0; i < threads; i++) {
+        jobs[i] = {this, H * i / threads, H * (i + 1) / threads, 0};
+        pthread_create(&jobs[i].id, nullptr, run, &jobs[i]);
+    }
+    for (auto &j : jobs) pthread_join(j.id, nullptr);
     cur_ = !cur_;
     hist_view_ = view_;
     ok_ = true;

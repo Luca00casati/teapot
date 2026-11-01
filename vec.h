@@ -1,8 +1,8 @@
 // vec.h — 3-component float vector used by the scene and the host side of the GPU path.
 #pragma once
 
-#include <cmath>
-#include <cstdint>
+#include <math.h>
+#include <stdint.h>
 
 struct v3 {
     float x = 0, y = 0, z = 0;

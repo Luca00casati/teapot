@@ -2,19 +2,19 @@
 // the camera, and the look (light, sky) shared with the GPU kernel.
 #pragma once
 
-#include <cstddef>
-#include <vector>
+#include <stddef.h>
 
+#include "minlib.h"
 #include "vec.h"
 
 struct Tri { v3 v0, e1, e2; int i0, i1, i2; };
 struct Node { v3 bmin, bmax; int first, count; };  // count == 0: children at first, first + 1
 
 struct Scene {
-    std::vector<v3> vpos, vnrm;
-    std::vector<Tri> tris;
-    std::vector<Node> nodes;
-    std::vector<int> tidx;       // triangle indices in leaf order
+    ml::Vec<v3> vpos, vnrm;
+    ml::Vec<Tri> tris;
+    ml::Vec<Node> nodes;
+    ml::Vec<int> tidx;       // triangle indices in leaf order
 
     void build();                // tessellate the teapot, build the SAH BVH
 

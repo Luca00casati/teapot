@@ -4,9 +4,9 @@
 // distance per pixel (negative on the teapot, 1e6 for sky).
 #pragma once
 
-#include <cstdint>
-#include <memory>
+#include <stdint.h>
 
+#include "minlib.h"
 #include "scene.h"
 
 class Backend {
@@ -17,4 +17,4 @@ public:
 };
 
 // the GPU path (gpu/): nullptr if no supported GPU is found
-std::unique_ptr<Backend> open_gpu(const Scene &scene, int w, int h);
+ml::Box<Backend> open_gpu(const Scene &scene, int w, int h);

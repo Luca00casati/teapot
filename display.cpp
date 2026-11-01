@@ -2,10 +2,8 @@
 
 #include "display.h"
 
-#include <algorithm>
-#include <cstdio>
-#include <cstring>
-#include <vector>
+#include <stdio.h>
+#include <string.h>
 
 #include <fcntl.h>
 #include <poll.h>
@@ -13,11 +11,13 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "minlib.h"
+
 void blit(const Target &src, const Target &dst, int scale) {
     for (int y = 0; y < dst.h; y++) {
-        const uint32_t *row = src.row(std::min(y / scale, src.h - 1));
+        const uint32_t *row = src.row(ml::min(y / scale, src.h - 1));
         uint32_t *drow = dst.row(y);
-        for (int x = 0; x < dst.w; x++) drow[x] = row[std::min(x / scale, src.w - 1)];
+        for (int x = 0; x < dst.w; x++) drow[x] = row[ml::min(x / scale, src.w - 1)];
     }
 }
 
@@ -25,7 +25,7 @@ int write_ppm(const char *path, const Target &t) {
     FILE *f = fopen(path, "wb");
     if (!f) { perror(path); return -1; }
     fprintf(f, "P6\n%d %d\n255\n", t.w, t.h);
-    std::vector<uint8_t> line(t.w * 3);
+    ml::Vec<uint8_t> line(t.w * 3);
     for (int y = 0; y < t.h; y++) {
         const uint32_t *row = t.row(y);
         for (int x = 0; x < t.w; x++) {
@@ -62,8 +62,8 @@ bool Drm::open(const char *path) {
         c.connector_id = conns[i];
         if (ioctl(fd, DRM_IOCTL_MODE_GETCONNECTOR, &c) < 0) continue;  // probes modes
         if (c.connection != 1 || !c.count_modes) continue;
-        std::vector<drm_mode_modeinfo> modes(c.count_modes);
-        std::vector<uint32_t> cenc(c.count_encoders + 1);
+        ml::Vec<drm_mode_modeinfo> modes(c.count_modes);
+        ml::Vec<uint32_t> cenc(c.count_encoders + 1);
         c.modes_ptr = (uintptr_t)modes.data();
         c.encoders_ptr = (uintptr_t)cenc.data();
         c.count_props = 0; c.props_ptr = c.prop_values_ptr = 0;

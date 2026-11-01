@@ -3,9 +3,8 @@
 // GPU resets. Raw ioctls only. It knows nothing about the hardware's command
 // stream or instruction set, so it serves every Intel generation i915 drives.
 
-#include <cstdio>
-#include <cstring>
-#include <vector>
+#include <stdio.h>
+#include <string.h>
 
 #include <drm/i915_drm.h>
 #include <fcntl.h>
@@ -23,17 +22,18 @@ public:
     ~I915() override { if (fd_ >= 0) close(fd_); }
     const char *name() const override { return "i915"; }
 
-    bool open(const std::function<bool(uint32_t)> &accept, uint32_t &chip_id, std::string &path) override {
+    bool open(const ml::FnRef<bool(uint32_t)> &accept, uint32_t &chip_id, char (&path)[64]) override {
         for (int i = 128; i < 136; i++) {
-            std::string p = "/dev/dri/renderD" + std::to_string(i);
-            int f = ::open(p.c_str(), O_RDWR | O_CLOEXEC);
+            char p[64];
+            snprintf(p, sizeof p, "/dev/dri/renderD%d", i);
+            int f = ::open(p, O_RDWR | O_CLOEXEC);
             if (f < 0) continue;
             int id = 0;
             drm_i915_getparam gp = {I915_PARAM_CHIPSET_ID, &id};
             if (!ioctl(f, DRM_IOCTL_I915_GETPARAM, &gp) && accept((uint32_t)id)) {
                 fd_ = f;
                 chip_id = (uint32_t)id;
-                path = p;
+                memcpy(path, p, sizeof p);
                 return true;
             }
             close(f);
@@ -111,12 +111,12 @@ public:
 
 private:
     int fd_ = -1;
-    std::vector<drm_i915_gem_relocation_entry> rel_;
-    std::vector<drm_i915_gem_exec_object2> obj_;
+    ml::Vec<drm_i915_gem_relocation_entry> rel_;
+    ml::Vec<drm_i915_gem_exec_object2> obj_;
 };
 
 }  // namespace
 
-std::unique_ptr<Driver> make_i915() { return std::unique_ptr<I915>(new I915()); }
+ml::Box<Driver> make_i915() { return ml::Box<I915>(new I915()); }
 
 }  // namespace gpu

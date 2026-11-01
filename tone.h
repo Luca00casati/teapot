@@ -2,8 +2,8 @@
 // values in through lin8, 12-bit linear back out through enc12.
 #pragma once
 
-#include <cmath>
-#include <cstdint>
+#include <math.h>
+#include <stdint.h>
 
 struct ToneLuts {
     float lin8[256];
@@ -18,7 +18,4 @@ struct ToneLuts {
     }
 };
 
-inline const ToneLuts &tone() {
-    static const ToneLuts t;
-    return t;
-}
+const ToneLuts &tone();

@@ -2,9 +2,9 @@
 
 #include "scene.h"
 
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* ------------------------------------------------- Newell teapot data --- */
 // Classic 10 patch / 127 control point form; rim, body, lid and bottom are
@@ -229,7 +229,7 @@ void Scene::build() {
 void Scene::write_blob(void *dst) const {
     int n = (int)nodes.size();
     size_t layout = layout_bytes();
-    std::vector<int> order(n), skip(n), size(n);
+    ml::Vec<int> order(n), skip(n), size(n);
     for (int oct = 0; oct < 8; oct++) {
         int stack[128], sp = 0, k = 0;
         stack[sp++] = 0;

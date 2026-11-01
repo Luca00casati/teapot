@@ -14,15 +14,12 @@
 // compiled by our own hardware layer and submitted with raw kernel-driver
 // ioctls, no Mesa; today Intel Haswell on i915).
 
-#include <cmath>
-#include <csignal>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <ctime>
-#include <memory>
-#include <string>
-#include <vector>
+#include <math.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 #include <poll.h>
 #include <unistd.h>
@@ -60,8 +57,8 @@ uint32_t pass_seed(uint32_t i) {
 
 // passes of a few samples each, averaged in linear light
 struct Accum {
-    std::vector<uint32_t> rgb;
-    std::vector<float> acc;
+    ml::Vec<uint32_t> rgb;
+    ml::Vec<float> acc;
     int samples = 0;
 
     explicit Accum(size_t n) : rgb(n), acc(n * 3) {}
@@ -117,11 +114,12 @@ bool frame_passes(Backend &b, const Camera &cam, const Target &tgt, int spp, uin
     return true;
 }
 
-std::string frame_pattern(const std::string &o) {
-    size_t dot = o.rfind('.');
-    if (o.find('%') != std::string::npos) return o;
-    if (dot != std::string::npos) return o.substr(0, dot) + "_%04d" + o.substr(dot);
-    return o + "_%04d.ppm";
+// out.ppm → out_%04d.ppm (a name that already has a % is used as is)
+void frame_pattern(const char *o, char *pat, size_t n) {
+    const char *dot = strrchr(o, '.');
+    if (strchr(o, '%')) snprintf(pat, n, "%s", o);
+    else if (dot) snprintf(pat, n, "%.*s_%%04d%s", (int)(dot - o), o, dot);
+    else snprintf(pat, n, "%s_%%04d.ppm", o);
 }
 
 }  // namespace
@@ -157,7 +155,7 @@ int main(int argc, char **argv) {
             (now() - t0) * 1e3);
 
     Drm drm;
-    std::vector<uint32_t> filebuf;
+    ml::Vec<uint32_t> filebuf;
     Target tgt;
     if (out) {
         filebuf.assign((size_t)W * H, 0);
@@ -166,8 +164,9 @@ int main(int argc, char **argv) {
         if (card) drm.open(card);
         else
             for (int i = 0; !drm && i < 8; i++) {
-                std::string p = "/dev/dri/card" + std::to_string(i);
-                if (!access(p.c_str(), F_OK)) drm.open(p.c_str());
+                char p[32];
+                snprintf(p, sizeof p, "/dev/dri/card%d", i);
+                if (!access(p, F_OK)) drm.open(p);
             }
         if (!drm) {
             fprintf(stderr, "no display available; use -o out.ppm\n");
@@ -189,7 +188,7 @@ int main(int argc, char **argv) {
         /* ---- animation: the camera orbits the teapot ---- */
         int scale = out ? 1 : rscale;
         int fw = (tgt.w + scale - 1) / scale, fh = (tgt.h + scale - 1) / scale;
-        std::vector<uint32_t> framebuf((size_t)fw * fh);
+        ml::Vec<uint32_t> framebuf((size_t)fw * fh);
         Target frame = Target::xrgb((uint8_t *)framebuf.data(), fw, fh);
         auto gpu = open_gpu(scene, fw, fh);
         if (!gpu) return 1;
@@ -197,9 +196,10 @@ int main(int argc, char **argv) {
         // on screen the GPU renders few samples per frame and accumulates them over time
         bool blend = !out && !no_blend;
         Temporal temporal;
-        std::vector<float> depth(blend ? (size_t)fw * fh : 0);
+        ml::Vec<float> depth(blend ? (size_t)fw * fh : 0);
         float *depth_out = blend ? depth.data() : nullptr;
-        std::string pattern = out ? frame_pattern(out) : "";
+        char pattern[512] = "";
+        if (out) frame_pattern(out, pattern, sizeof pattern);
 
         fprintf(stderr, "animating %dx%d @ %d spp%s on the gpu%s\n", fw, fh, spp,
                 blend ? " + temporal accumulation" : "", out ? "" : " (Enter or Ctrl-C to stop)");
@@ -232,7 +232,7 @@ int main(int argc, char **argv) {
 
             if (out) {
                 char name[600];
-                snprintf(name, sizeof name, pattern.c_str(), f);
+                snprintf(name, sizeof name, pattern, f);
                 if (write_ppm(name, frame)) return 1;
                 fprintf(stderr, "\r%s (%u/%d)", name, f + 1, nframes);
                 if ((int)f + 1 >= nframes) { fputc('\n', stderr); break; }
