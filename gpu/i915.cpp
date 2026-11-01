@@ -117,6 +117,6 @@ private:
 
 }  // namespace
 
-std::unique_ptr<Driver> make_i915() { return std::make_unique<I915>(); }
+std::unique_ptr<Driver> make_i915() { return std::unique_ptr<I915>(new I915()); }
 
 }  // namespace gpu

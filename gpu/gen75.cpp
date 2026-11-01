@@ -43,8 +43,11 @@ enum { G_UNI = 1, G_LX = 5, G_LY = 7, G_SC0 = 9, G_HDR = 10, G_BLK = 11, G_SC1 =
        G_VEC_END = 122, G_ST = 122, G_HDR2 = 125, G_EOT = 127 };
 
 struct Gop {
-    uint8_t file = RF_ARF, type = TY_F, nr = 0, sub = 0, vs = 0, w = 1, hs = 0, neg = 0;  // default: null
-    uint32_t imm = 0;
+    uint8_t file, type, nr, sub, vs, w, hs, neg;
+    uint32_t imm;
+    Gop(uint8_t file = RF_ARF, uint8_t type = TY_F, uint8_t nr = 0, uint8_t sub = 0, uint8_t vs = 0,  // default: null
+        uint8_t w = 1, uint8_t hs = 0, uint8_t neg = 0, uint32_t imm = 0)
+        : file(file), type(type), nr(nr), sub(sub), vs(vs), w(w), hs(hs), neg(neg), imm(imm) {}
 };
 Gop gvec(int r, int type) { return {RF_GRF, (uint8_t)type, (uint8_t)r, 0, 8, 8, 1, 0, 0}; }  // SIMD16, r:r+1
 Gop gsc(int r, int c, int type) { return {RF_GRF, (uint8_t)type, (uint8_t)r, (uint8_t)(c * 4), 0, 1, 0, 0, 0}; }
@@ -61,7 +64,11 @@ int enc_hs(int h) { return h == 0 ? 0 : h == 1 ? 1 : h == 2 ? 2 : 3; }
 int enc_es(int e) { return e == 1 ? 0 : e == 2 ? 1 : e == 4 ? 2 : e == 8 ? 3 : 4; }
 
 // modifiers of one EU instruction
-struct Mods { int pred = 0, pinv = 0, flag = 0, cmod = 0, sat = 0, es = 16, nomask = 0; };
+struct Mods {
+    int pred, pinv, flag, cmod, sat, es, nomask;
+    Mods(int pred = 0, int pinv = 0, int flag = 0, int cmod = 0, int sat = 0, int es = 16, int nomask = 0)
+        : pred(pred), pinv(pinv), flag(flag), cmod(cmod), sat(sat), es(es), nomask(nomask) {}
+};
 const Mods scalar_mods = {0, 0, 0, 0, 0, 1, 1};
 Mods header_mods() { Mods m; m.es = 8; m.nomask = 1; return m; }
 
@@ -388,6 +395,6 @@ bool Gen75::setup(Driver &drv, int tiles_x, int tiles_y, Buffer *bufs) {
 
 }  // namespace
 
-std::unique_ptr<Hardware> make_gen75() { return std::make_unique<Gen75>(); }
+std::unique_ptr<Hardware> make_gen75() { return std::unique_ptr<Gen75>(new Gen75()); }
 
 }  // namespace gpu

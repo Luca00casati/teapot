@@ -14,6 +14,8 @@
 
 #include "../scene.h"
 
+kir::Program *kir::cur = nullptr;
+
 namespace rt {
 namespace {
 
@@ -30,7 +32,10 @@ Vec3 vreg3() {
     Reg x = vreg(), y = vreg(), z = vreg();
     return {x, y, z};
 }
-template <size_t... I> std::array<Reg, sizeof...(I)> vregs(std::index_sequence<I...>) {
+template <size_t... I> struct seq {};
+template <size_t N, size_t... I> struct make_seq : make_seq<N - 1, N - 1, I...> {};
+template <size_t... I> struct make_seq<0, I...> { typedef seq<I...> type; };
+template <size_t... I> std::array<Reg, sizeof...(I)> vregs(seq<I...>) {
     return {((void)I, vreg())...};          // braced lists evaluate left to right
 }
 
@@ -46,7 +51,7 @@ private:
     const Reg HT = vreg();                                              // t
     const Vec3 HN = vreg3(), HG = vreg3();                              // interpolated / geometric normal
     const Reg HM = vreg();                                              // material: 0 miss, 1 teapot, 2 floor
-    const std::array<Reg, 11> t = vregs(std::make_index_sequence<11>());  // temporaries
+    const std::array<Reg, 11> t = vregs(make_seq<11>::type());  // temporaries
     // shading state that survives a traversal
     const Vec3 SP = vreg3(), SN = vreg3(), SG = vreg3(), SD = vreg3();
     const Reg SM = vreg();
@@ -302,7 +307,8 @@ void Kernel::traverse(bool shadow) const {
 
 // sky(dir) → d, using s as scratch
 void Kernel::sky3(const Vec3 &d, const Operand &ydir, const Reg &s) const {
-    using look::sky_horizon, look::sky_zenith;
+    using look::sky_horizon;
+    using look::sky_zenith;
     s = max(ydir, 0.0f);
     s = sqrt(s);
     for (int a = 0; a < 3; a++) { d[a] = s * (sky_zenith[a] - sky_horizon[a]); d[a] = d[a] + sky_horizon[a]; }

@@ -113,7 +113,7 @@ bool GpuBackend::collect(uint32_t *rgb, float *depth) {
 }  // namespace gpu
 
 std::unique_ptr<Backend> open_gpu(const Scene &scene, int w, int h) {
-    auto b = std::make_unique<gpu::GpuBackend>(scene, w, h);
+    auto b = std::unique_ptr<gpu::GpuBackend>(new gpu::GpuBackend(scene, w, h));
     if (!b->init(scene)) return nullptr;
     return b;
 }

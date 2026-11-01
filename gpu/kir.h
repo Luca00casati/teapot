@@ -77,8 +77,8 @@ struct Operand {
 };
 
 inline Operand u32(uint32_t v) { Operand o(Kind::Imm, Type::U, 0); o.imm = v; return o; }
-inline const Operand lane_x{Kind::LaneX, Type::F, 0}, lane_y{Kind::LaneY, Type::F, 0};
-inline const Operand group_x{Kind::GroupX, Type::U, 0}, group_y{Kind::GroupY, Type::U, 0};
+const Operand lane_x{Kind::LaneX, Type::F, 0}, lane_y{Kind::LaneY, Type::F, 0};
+const Operand group_x{Kind::GroupX, Type::U, 0}, group_y{Kind::GroupY, Type::U, 0};
 inline Operand U(int i) { return {Kind::U, Type::F, i}; }
 inline Operand B(int block, int i) { return {Kind::B, Type::F, block * 16 + i}; }
 inline Operand lane0(const Operand &v) { return {Kind::Lane0, v.type, v.idx}; }
@@ -104,15 +104,20 @@ struct Program {
     }
 };
 
-// the program being built; set with Building
-inline Program *cur = nullptr;
+// the program being built; set with Building (defined in rt_kernel.cpp)
+extern Program *cur;
 struct Building {
     explicit Building(Program &p) { p = Program(); cur = &p; }
     ~Building() { cur = nullptr; }
 };
 
 // one pending instruction: what an operator returns, emitted on assignment
-struct Expr { Op op; Operand a, b; bool sat = false; };
+struct Expr {
+    Op op;
+    Operand a, b;
+    bool sat;
+    Expr(Op op, Operand a, Operand b) : op(op), a(a), b(b), sat(false) {}
+};
 
 inline Expr operator+(Operand a, Operand b) { return {ADD, a, b}; }
 inline Expr operator-(Operand a, Operand b) { return {ADD, a, -b}; }
@@ -149,7 +154,7 @@ struct Flag {
         cur->emit(in);
     }
 };
-inline constexpr Flag f0{0}, f1{1};
+constexpr Flag f0{0}, f1{1};
 
 inline void emit(Operand d, Expr e, int pred = 0) {
     Inst in{e.op};

@@ -9,9 +9,13 @@
 #include <drm/drm_mode.h>
 
 struct Target {
-    uint8_t *base = nullptr;
-    int w = 0, h = 0, pitch = 0, bpp = 32;
-    int ro = 16, rl = 8, go = 8, gl = 8, bo = 0, bl = 8;   // channel offsets / lengths
+    uint8_t *base;
+    int w, h, pitch, bpp;
+    int ro, rl, go, gl, bo, bl;   // channel offsets / lengths
+
+    Target(uint8_t *base = nullptr, int w = 0, int h = 0, int pitch = 0, int bpp = 32,
+           int ro = 16, int rl = 8, int go = 8, int gl = 8, int bo = 0, int bl = 8)
+        : base(base), w(w), h(h), pitch(pitch), bpp(bpp), ro(ro), rl(rl), go(go), gl(gl), bo(bo), bl(bl) {}
 
     static Target xrgb(uint8_t *base, int w, int h) { return {base, w, h, w * 4}; }
     uint32_t *row(int y) const { return (uint32_t *)(base + (size_t)y * pitch); }

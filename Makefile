@@ -1,5 +1,5 @@
 CXXFLAGS ?= -O3 -march=native -ffast-math -Wall -Wextra
-CXXFLAGS += -std=c++20 -fno-exceptions -fno-rtti -MMD -MP $(DEFINES)
+CXXFLAGS += -std=c++11 -fno-exceptions -fno-rtti -MMD -MP $(DEFINES)
 # developer switches, e.g. make clean; make DEFINES='-DTEAPOT_GPU_DEBUG -DTEAPOT_DUMP_KERNEL="\"k.bin\""'
 #   TEAPOT_GPU_DEBUG       GPU renders a traversal heat map (red material, green nodes, blue triangles)
 #   TEAPOT_DUMP_KERNEL=p   write the GPU machine code to file p
