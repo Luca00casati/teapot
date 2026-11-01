@@ -114,12 +114,12 @@ bool frame_passes(Backend &b, const Camera &cam, const Target &tgt, int spp, uin
     return true;
 }
 
-// out.ppm → out_%04d.ppm (a name that already has a % is used as is)
-void frame_pattern(const char *o, char *pat, size_t n) {
+// out.ppm → out_0007.ppm; a name with a % in it is a printf pattern for the frame number
+ml::Str frame_name(const char *o, uint32_t f) {
+    if (strchr(o, '%')) return ml::Str::fmt(o, f);
     const char *dot = strrchr(o, '.');
-    if (strchr(o, '%')) snprintf(pat, n, "%s", o);
-    else if (dot) snprintf(pat, n, "%.*s_%%04d%s", (int)(dot - o), o, dot);
-    else snprintf(pat, n, "%s_%%04d.ppm", o);
+    if (!dot) return ml::Str::fmt("%s_%04u.ppm", o, f);
+    return ml::Str::fmt("%.*s_%04u%s", (int)(dot - o), o, f, dot);
 }
 
 }  // namespace
@@ -164,9 +164,8 @@ int main(int argc, char **argv) {
         if (card) drm.open(card);
         else
             for (int i = 0; !drm && i < 8; i++) {
-                char p[32];
-                snprintf(p, sizeof p, "/dev/dri/card%d", i);
-                if (!access(p, F_OK)) drm.open(p);
+                ml::Str p = ml::Str::fmt("/dev/dri/card%d", i);
+                if (!access(p.c_str(), F_OK)) drm.open(p.c_str());
             }
         if (!drm) {
             fprintf(stderr, "no display available; use -o out.ppm\n");
@@ -198,8 +197,6 @@ int main(int argc, char **argv) {
         Temporal temporal;
         ml::Vec<float> depth(blend ? (size_t)fw * fh : 0);
         float *depth_out = blend ? depth.data() : nullptr;
-        char pattern[512] = "";
-        if (out) frame_pattern(out, pattern, sizeof pattern);
 
         fprintf(stderr, "animating %dx%d @ %d spp%s on the gpu%s\n", fw, fh, spp,
                 blend ? " + temporal accumulation" : "", out ? "" : " (Enter or Ctrl-C to stop)");
@@ -231,10 +228,9 @@ int main(int argc, char **argv) {
             frames++; tick_frames++;
 
             if (out) {
-                char name[600];
-                snprintf(name, sizeof name, pattern, f);
-                if (write_ppm(name, frame)) return 1;
-                fprintf(stderr, "\r%s (%u/%d)", name, f + 1, nframes);
+                ml::Str name = frame_name(out, f);
+                if (write_ppm(name.c_str(), frame)) return 1;
+                fprintf(stderr, "\r%s (%u/%d)", name.c_str(), f + 1, nframes);
                 if ((int)f + 1 >= nframes) { fputc('\n', stderr); break; }
                 continue;
             }

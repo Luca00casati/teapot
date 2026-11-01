@@ -35,7 +35,7 @@ public:
     virtual ~Driver() = default;
     virtual const char *name() const = 0;
     // open the first device whose chip id `accept` takes
-    virtual bool open(const ml::FnRef<bool(uint32_t)> &accept, uint32_t &chip_id, char (&path)[64]) = 0;
+    virtual bool open(const ml::FnRef<bool(uint32_t)> &accept, uint32_t &chip_id, ml::Str &path) = 0;
     virtual bool alloc(Buffer &b, uint64_t size) = 0;         // zeroed and mapped
     virtual void release(Buffer &b) = 0;                      // (called by ~Buffer)
     virtual void sync(const Buffer &b, bool write) = 0;       // make the CPU view coherent; waits for the GPU
@@ -49,7 +49,7 @@ class Hardware {
 public:
     virtual ~Hardware() = default;
     virtual const char *name() const = 0;
-    virtual bool probe(uint32_t chip_id, char (&desc)[64]) = 0;  // does this layer drive the chip?
+    virtual bool probe(uint32_t chip_id, ml::Str &desc) = 0;  // does this layer drive the chip?
     virtual bool compile(const kir::Program &p) = 0;
     // bufs[0] scene, bufs[1..2] images of tiles_x*4 by tiles_y*4 dwords
     virtual bool setup(Driver &drv, int tiles_x, int tiles_y, Buffer *bufs) = 0;

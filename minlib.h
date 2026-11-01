@@ -5,13 +5,16 @@
 //   Box<T>      owning pointer (delete on destruction), move-only
 //   Arr<T, N>   fixed array that can be returned by value
 //   FnRef<F>    non-owning reference to a callable (a lambda on the stack)
+//   Str         heap string, built with Str::fmt (printf) and +=
 //   move, min, max
 //
 // Allocation failure aborts; nothing here throws.
 #pragma once
 
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -126,5 +129,47 @@ private:
     void *obj_;
     R (*call_)(void *, A...);
 };
+
+class Str {
+public:
+    Str() = default;
+    Str(const char *s) { *this += s; }
+    Str(const Str &o) { *this += o.c_str(); }
+    Str &operator=(const Str &o) {
+        if (this != &o) { b_.clear(); *this += o.c_str(); }
+        return *this;
+    }
+    Str(Str &&) = default;
+    Str &operator=(Str &&) = default;
+
+    static Str fmt(const char *f, ...) __attribute__((format(printf, 1, 2)));
+    Str &operator+=(const char *s) { return append(s, strlen(s)); }
+    Str &append(const char *s, size_t n) {   // s must not point into this string
+        size_t k = size();
+        b_.resize(k + n + 1);                 // the new last byte is the zero terminator
+        memcpy(b_.data() + k, s, n);
+        return *this;
+    }
+    const char *c_str() const { return b_.empty() ? "" : b_.data(); }
+    size_t size() const { return b_.empty() ? 0 : b_.size() - 1; }
+    bool empty() const { return size() == 0; }
+
+private:
+    Vec<char> b_;   // the characters and a zero terminator; empty for ""
+};
+
+inline Str Str::fmt(const char *f, ...) {
+    va_list ap;
+    va_start(ap, f);
+    int n = vsnprintf(nullptr, 0, f, ap);
+    va_end(ap);
+    Str s;
+    if (n <= 0) return s;
+    s.b_.resize(n + 1);
+    va_start(ap, f);
+    vsnprintf(s.b_.data(), n + 1, f, ap);
+    va_end(ap);
+    return s;
+}
 
 }  // namespace ml

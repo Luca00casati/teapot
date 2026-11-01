@@ -22,18 +22,17 @@ public:
     ~I915() override { if (fd_ >= 0) close(fd_); }
     const char *name() const override { return "i915"; }
 
-    bool open(const ml::FnRef<bool(uint32_t)> &accept, uint32_t &chip_id, char (&path)[64]) override {
+    bool open(const ml::FnRef<bool(uint32_t)> &accept, uint32_t &chip_id, ml::Str &path) override {
         for (int i = 128; i < 136; i++) {
-            char p[64];
-            snprintf(p, sizeof p, "/dev/dri/renderD%d", i);
-            int f = ::open(p, O_RDWR | O_CLOEXEC);
+            ml::Str p = ml::Str::fmt("/dev/dri/renderD%d", i);
+            int f = ::open(p.c_str(), O_RDWR | O_CLOEXEC);
             if (f < 0) continue;
             int id = 0;
             drm_i915_getparam gp = {I915_PARAM_CHIPSET_ID, &id};
             if (!ioctl(f, DRM_IOCTL_I915_GETPARAM, &gp) && accept((uint32_t)id)) {
                 fd_ = f;
                 chip_id = (uint32_t)id;
-                memcpy(path, p, sizeof p);
+                path = ml::move(p);
                 return true;
             }
             close(f);

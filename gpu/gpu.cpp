@@ -40,7 +40,7 @@ bool GpuBackend::init(const Scene &s) {
     ml::Box<Driver> drivers[] = {make_i915()};
     ml::Box<Hardware> layers[] = {make_gen75()};
     uint32_t chip = 0;
-    char path[64] = "", desc[64] = "";
+    ml::Str path, desc;
     for (auto &d : drivers) {
         auto accept = [&](uint32_t id) {
             for (auto &l : layers)
@@ -50,7 +50,7 @@ bool GpuBackend::init(const Scene &s) {
         if (d->open(accept, chip, path)) { drv_ = ml::move(d); break; }
     }
     if (!drv_) { fprintf(stderr, "gpu: no supported GPU found\n"); return false; }
-    fprintf(stderr, "gpu: %s %s (%s, %s)\n", path, desc, drv_->name(), hw_->name());
+    fprintf(stderr, "gpu: %s %s (%s, %s)\n", path.c_str(), desc.c_str(), drv_->name(), hw_->name());
 
     kir::Program prog;
 #ifdef TEAPOT_GPU_DEBUG

@@ -155,12 +155,12 @@ class Gen75 final : public Hardware {
 public:
     const char *name() const override { return "gen75"; }
 
-    bool probe(uint32_t id, char (&desc)[64]) override {
+    bool probe(uint32_t id, ml::Str &desc) override {
         uint32_t fam = id & 0xff00;
         if (fam != 0x0400 && fam != 0x0a00 && fam != 0x0c00 && fam != 0x0d00) return false;
         int gt = (id >> 4) & 3;
         threads_ = 70 << gt;
-        snprintf(desc, sizeof desc, "Haswell GT%d [8086:%04x]", gt + 1, id);
+        desc = ml::Str::fmt("Haswell GT%d [8086:%04x]", gt + 1, id);
         return true;
     }
 
