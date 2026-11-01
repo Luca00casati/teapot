@@ -1,1 +1,3 @@
-/target
+teapot
+tests/host
+tests/kernel
