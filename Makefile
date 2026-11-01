@@ -5,7 +5,7 @@ CXXFLAGS += -std=c++11 -fno-exceptions -fno-rtti -MMD -MP $(DEFINES)
 #   TEAPOT_DUMP_KERNEL=p   write the GPU machine code to file p
 LDLIBS = -lpthread
 
-SRCS = teapot.cpp scene.cpp cpu_render.cpp temporal.cpp display.cpp \
+SRCS = teapot.cpp scene.cpp temporal.cpp display.cpp \
        gpu/gpu.cpp gpu/rt_kernel.cpp gpu/gen75.cpp gpu/i915.cpp
 OBJS = $(SRCS:.cpp=.o)
 

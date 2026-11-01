@@ -1,6 +1,5 @@
 // scene.h — the tessellated Newell teapot on a checkerboard floor, its BVH,
-// the camera, and the look (light, sky, materials) shared by the CPU tracer
-// and the GPU kernel.
+// the camera, and the look (light, sky) shared with the GPU kernel.
 #pragma once
 
 #include <cstddef>

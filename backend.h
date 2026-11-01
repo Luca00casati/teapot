@@ -1,4 +1,4 @@
-// backend.h — an accelerator that renders whole passes asynchronously:
+// backend.h — the renderer: it renders whole passes asynchronously:
 // submit() queues `samples` per pixel of the camera's view and returns,
 // collect() waits and hands back XRGB8888 pixels plus the primary hit
 // distance per pixel (negative on the teapot, 1e6 for sky).
@@ -12,7 +12,6 @@
 class Backend {
 public:
     virtual ~Backend() = default;
-    virtual const char *name() const = 0;
     virtual bool submit(const Camera &cam, int samples, uint32_t seed, int sample_base) = 0;
     virtual bool collect(uint32_t *rgb, float *depth) = 0;
 };

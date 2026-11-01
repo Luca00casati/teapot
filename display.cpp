@@ -1,31 +1,23 @@
-// display.cpp — DRM/KMS and fbdev through raw ioctls, plus PPM output.
+// display.cpp — DRM/KMS through raw ioctls, plus PPM output.
 
 #include "display.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <vector>
 
 #include <fcntl.h>
-#include <linux/fb.h>
-#include <linux/kd.h>
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
 void blit(const Target &src, const Target &dst, int scale) {
-    bool direct = dst.is_xrgb();
     for (int y = 0; y < dst.h; y++) {
-        int sy = y / scale < src.h ? y / scale : src.h - 1;
-        const uint32_t *row = src.row(sy);
+        const uint32_t *row = src.row(std::min(y / scale, src.h - 1));
         uint32_t *drow = dst.row(y);
-        for (int x = 0; x < dst.w; x++) {
-            int sx = x / scale < src.w ? x / scale : src.w - 1;
-            uint32_t p = row[sx];
-            if (direct) drow[x] = p;
-            else dst.put_rgb8(x, y, p >> 16 & 255, p >> 8 & 255, p & 255);
-        }
+        for (int x = 0; x < dst.w; x++) drow[x] = row[std::min(x / scale, src.w - 1)];
     }
 }
 
@@ -135,7 +127,7 @@ bool Drm::open(const char *path) {
             return false;
         }
         crtc_ = crtc; front_ = 0;
-        tgt_ = Target{nullptr, (int)cd.width, (int)cd.height, (int)cd.pitch};
+        tgt_ = {nullptr, (int)cd.width, (int)cd.height, (int)cd.pitch};
         fprintf(stderr, "drm: %s connector %u crtc %u %ux%u@%u\n", path, conn_, crtc,
                 mode.hdisplay, mode.vdisplay, mode.vrefresh);
         return true;
@@ -145,9 +137,9 @@ bool Drm::open(const char *path) {
     return false;
 }
 
-void Drm::dirty() {
+void Drm::dirty(int k) {
     drm_mode_fb_dirty_cmd d = {};
-    d.fb_id = fb_[front_];
+    d.fb_id = fb_[k];
     ioctl(fd_, DRM_IOCTL_MODE_DIRTYFB, &d);
 }
 
@@ -161,9 +153,7 @@ void Drm::wait_flip() {
 
 void Drm::flip() {
     int back = !front_;
-    drm_mode_fb_dirty_cmd d = {};
-    d.fb_id = fb_[back];
-    ioctl(fd_, DRM_IOCTL_MODE_DIRTYFB, &d);
+    dirty(back);
     drm_mode_crtc_page_flip fl = {};
     fl.crtc_id = crtc_; fl.fb_id = fb_[back]; fl.flags = DRM_MODE_PAGE_FLIP_EVENT;
     if (!ioctl(fd_, DRM_IOCTL_MODE_PAGE_FLIP, &fl)) {
@@ -201,37 +191,4 @@ void Drm::close() {
     ::close(fd_);
     fd_ = -1;
     saved_ = {};
-}
-
-/* ---------------------------------------------------------- fbdev ------ */
-
-bool Fbdev::open(const char *path) {
-    int fd = ::open(path, O_RDWR | O_CLOEXEC);
-    if (fd < 0) { perror(path); return false; }
-    fb_var_screeninfo vi;
-    fb_fix_screeninfo fi;
-    if (ioctl(fd, FBIOGET_VSCREENINFO, &vi) < 0 || ioctl(fd, FBIOGET_FSCREENINFO, &fi) < 0) {
-        perror("fbdev ioctl"); ::close(fd); return false;
-    }
-    if (vi.bits_per_pixel != 32 && vi.bits_per_pixel != 24 && vi.bits_per_pixel != 16) {
-        fprintf(stderr, "fbdev: unsupported %u bpp\n", vi.bits_per_pixel); ::close(fd); return false;
-    }
-    void *map = mmap(nullptr, fi.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (map == MAP_FAILED) { perror("mmap fb"); ::close(fd); return false; }
-    fd_ = fd; map_ = map; len_ = fi.smem_len;
-    uint8_t *base = (uint8_t *)map + vi.yoffset * fi.line_length + vi.xoffset * vi.bits_per_pixel / 8;
-    tgt_ = Target{base, (int)vi.xres, (int)vi.yres, (int)fi.line_length, (int)vi.bits_per_pixel,
-                  (int)vi.red.offset, (int)vi.red.length, (int)vi.green.offset, (int)vi.green.length,
-                  (int)vi.blue.offset, (int)vi.blue.length};
-    if (!ioctl(STDIN_FILENO, KDSETMODE, KD_GRAPHICS)) kd_set_ = true;  // hide the console on a VT
-    fprintf(stderr, "fbdev: %s %ux%u %ubpp\n", path, vi.xres, vi.yres, vi.bits_per_pixel);
-    return true;
-}
-
-void Fbdev::close() {
-    if (fd_ < 0) return;
-    if (kd_set_) ioctl(STDIN_FILENO, KDSETMODE, KD_TEXT);
-    munmap(map_, len_);
-    ::close(fd_);
-    fd_ = -1; kd_set_ = false;
 }

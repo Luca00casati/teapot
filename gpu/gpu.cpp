@@ -24,7 +24,6 @@ class GpuBackend final : public Backend {
 public:
     GpuBackend(const Scene &s, int w, int h) : w_(w), h_(h), layout_(s.layout_bytes()), nnodes_((uint32_t)s.nodes.size()) {}
     bool init(const Scene &s);
-    const char *name() const override { return "gpu"; }
     bool submit(const Camera &cam, int samples, uint32_t seed, int sample_base) override;
     bool collect(uint32_t *rgb, float *depth) override;
 
