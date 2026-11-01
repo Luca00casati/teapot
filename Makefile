@@ -1,10 +1,19 @@
-CFLAGS ?= -O3 -march=native -ffast-math -Wall -Wextra
-LDLIBS = -lm -lpthread
+CXXFLAGS ?= -O3 -march=native -ffast-math -Wall -Wextra
+CXXFLAGS += -std=c++20 -fno-exceptions -fno-rtti -MMD -MP $(DEFINES)
+# developer switches, e.g. make clean; make DEFINES='-DTEAPOT_GPU_DEBUG -DTEAPOT_DUMP_KERNEL="\"k.bin\""'
+#   TEAPOT_GPU_DEBUG       GPU renders a traversal heat map (red material, green nodes, blue triangles)
+#   TEAPOT_DUMP_KERNEL=p   write the GPU machine code to file p
+LDLIBS = -lpthread
 
-teapot: teapot.c gpu.c kir.c rt_kernel.c gen75.c i915.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDLIBS)
+SRCS = teapot.cpp scene.cpp cpu_render.cpp temporal.cpp display.cpp \
+       gpu/gpu.cpp gpu/rt_kernel.cpp gpu/gen75.cpp gpu/i915.cpp
+OBJS = $(SRCS:.cpp=.o)
+
+teapot: $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
 clean:
-	rm -f teapot *.ppm
+	rm -f teapot $(OBJS) $(OBJS:.o=.d) *.ppm
 
 .PHONY: clean
+-include $(OBJS:.o=.d)
