@@ -220,7 +220,7 @@
                           (set tick-frames 0))
                         (when (and (>= hold 0) (>= (- t start) (cast f64 hold))) (break))
                         (when (and (= (isatty 0) 1) (key-pressed))
-                          (read-key)             ; any key stops
+                          (discard (read-key))   ; any key stops
                           (break))))
                   (+= f 1)))
               (let ((secs (- (now) start)))
