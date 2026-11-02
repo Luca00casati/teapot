@@ -41,11 +41,11 @@
 (defn open ((s (ptr scene::model)) (w u32) (h u32)) (ptr device)
   (let ((path (array i8 64)) (desc (array i8 64)) (drv (i915::connect accept-chip desc path)))
     (when (= drv null)
-      (fprintf stderr "device: no supported GPU found\n")
+      (fprintf stderr c"device: no supported GPU found\n")
       (return null))
     (let ((hw accepted) (g (cast (ptr device) (calloc 1 (sizeof device))))
           (tx (/ (+ w 3) 4)) (ty (/ (+ h 3) 4)) (img (* (cast u64 tx) (cast u64 ty) 16 4)))
-      (fprintf stderr "device: %s %s (%s, %s)\n" path desc drv.name hw.name)
+      (fprintf stderr c"device: %s %s (%s, %s)\n" path desc drv.name hw.name)
       (rt::build (defined TEAPOT_GPU_DEBUG))   ; debug: heat map of the traversal
       (unless (hw.compile hw (addr kir::prog)) (return null))
       (unless (and (drv.alloc drv (scene::blob-bytes s) (addr (aref g.bufs rt::BUF-SCENE)))
@@ -90,7 +90,7 @@
 (defn collect ((g (ptr device)) (rgb (ptr u32)) (depth (ptr f32))) bool
   (g.drv.sync g.drv (addr (aref g.bufs rt::BUF-RGB)) false)   ; waits for the GPU
   (when (g.drv.hung g.drv)
-    (fprintf stderr "device: kernel hung the GPU (reset by the driver), giving up on the GPU path\n")
+    (fprintf stderr c"device: kernel hung the GPU (reset by the driver), giving up on the GPU path\n")
     (return false))
   (let ((src (cast (ptr u32) (. (aref g.bufs rt::BUF-RGB) map))))
     (for (y u32 0 g.h) (memcpy (+ rgb (* y g.w)) (+ src (* y g.w4)) (* (cast u64 g.w) 4))))

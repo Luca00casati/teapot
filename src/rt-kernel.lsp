@@ -47,7 +47,7 @@
 (def hn reg3) (def hg reg3)              ; interpolated / geometric normal
 (def hm operand)                         ; material: 0 miss, 1 teapot, 2 floor
 ; temporaries t0..t10, also as an array for computed indices: (tn i)
-(defmacro- def-temps (n) `(do ,@(map (lambda (i) `(def ,(sym "t" i) operand)) (range n)) (def temps (array operand ,n))))
+(defmacro- def-temps (n) `(do ,@(map (lambda (i) `(def ,(sym c"t" i) operand)) (range n)) (def temps (array operand ,n))))
 (def-temps 11)
 (defn- tn ((i i32)) operand (aref temps i))
 ; shading state that survives a traversal
@@ -63,7 +63,7 @@
 (def dbg-nodes operand) (def dbg-tris operand)
 
 (defmacro- alloc-temps (n)
-  `(do ,@(map (lambda (i) `(do (set ,(sym "t" i) (vreg)) (set (aref temps ,i) ,(sym "t" i)))) (range n))))
+  `(do ,@(map (lambda (i) `(do (set ,(sym c"t" i) (vreg)) (set (aref temps ,i) ,(sym c"t" i)))) (range n))))
 
 (defn- alloc-registers () void
   ; vector registers are numbered in the order of these calls

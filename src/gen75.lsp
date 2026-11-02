@@ -147,7 +147,7 @@
 
 (defn compile ((p (ptr program))) bool
   (when (> (+ G-VEC (* 2 p.nvec)) G-VEC-END)
-    (fprintf stderr "gen75: kernel needs %u vector registers, only %d fit\n" p.nvec (/ (- G-VEC-END G-VEC) 2))
+    (fprintf stderr c"gen75: kernel needs %u vector registers, only %d fit\n" p.nvec (/ (- G-VEC-END G-VEC) 2))
     (return false))
   (set enc.n 0)
   (let ((at (cast (ptr u32) (malloc (* 4 (+ (cast u64 p.n) 1)))))  ; first EU instruction of each IR instruction
@@ -162,7 +162,7 @@
             (m (if scalar SCALAR-MODS MODS)))
         (set (aref at i) enc.n)
         (when (and scalar (or (is-vector k.a) (is-vector k.b)))
-          (fprintf stderr "gen75: IR %u: vector source in a scalar op\n" i)
+          (fprintf stderr c"gen75: IR %u: vector source in a scalar op\n" i)
           (return false))
         (when (!= k.pred 0)
           (set m.pred PR-NORMAL)
@@ -174,7 +174,7 @@
            ; 32x16 integer multiply: a uint immediate of 16 bits is encoded as UW
            (when (and (= b.file RF-IMM) (= b.ty TY-UD))
              (when (> b.imm 0xffff)
-               (fprintf stderr "gen75: IR %u: 32-bit integer multiply\n" i)
+               (fprintf stderr c"gen75: IR %u: 32-bit integer multiply\n" i)
                (return false))
              (set b.ty TY-UW)
              (set b.imm (| b.imm (<< b.imm 16))))
@@ -225,14 +225,14 @@
       (let ((k (addr (aref p.code i))))
         (when (is-jump k.op)
           (when (< k.target 0)
-            (fprintf stderr "gen75: IR %u: jump to an unbound label\n" i)
+            (fprintf stderr c"gen75: IR %u: jump to an unbound label\n" i)
             (return false))
           (let ((from (aref at i)))
             (set (aref enc.code (+ (* from 4) 3)) (* 16 (- (- (aref at k.target) from) 1)))))))
     (free at))
   ; raw EU binary to this path, for disassemblers / diffs (lisc -DTEAPOT_DUMP_KERNEL=k.bin)
   (if-defined TEAPOT_DUMP_KERNEL
-    (let ((f (fopen TEAPOT_DUMP_KERNEL "wb")))
+    (let ((f (fopen TEAPOT_DUMP_KERNEL c"wb")))
       (if (= f null)
           (perror TEAPOT_DUMP_KERNEL)
           (do (fwrite enc.code 16 (cast u64 enc.n) f) (fclose f)))))
@@ -267,7 +267,7 @@
     (memset batch.map 0 batch.size)
     (let ((mem (cast (ptr u32) batch.map)))
       (when (> (+ OFF-KERNEL (* 16 (cast u64 enc.n))) batch.size)
-        (fprintf stderr "gen75: kernel too large\n")
+        (fprintf stderr c"gen75: kernel too large\n")
         (return false))
       (memcpy (+ batch.map OFF-KERNEL) enc.code (* 16 (cast u64 enc.n)))
 
@@ -346,6 +346,6 @@
           (g (cast (ptr gen75) (calloc 1 (sizeof gen75))))
           (h (cast (ptr hardware) (calloc 1 (sizeof hardware)))))
       (set g.threads (<< 70 gt))
-      (snprintf desc 64 "Haswell GT%u [8086:%04x]" (+ gt 1) id)
-      (set (deref h) (make hardware :name "gen75" :state g :compile hw-compile :setup setup :run run))
+      (snprintf desc 64 c"Haswell GT%u [8086:%04x]" (+ gt 1) id)
+      (set (deref h) (make hardware :name c"gen75" :state g :compile hw-compile :setup setup :run run))
       h)))

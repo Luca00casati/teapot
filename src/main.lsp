@@ -91,9 +91,9 @@
       (accum-resolve (addr acc) tgt)
       (when (!= disp null) (display::dirty disp))
       (when (and refine (>= acc.samples (deref spp)))
-        (fprintf stderr "\r%u samples/pixel, press Enter to exit " acc.samples))
+        (fprintf stderr c"\r%u samples/pixel, press Enter to exit " acc.samples))
       (+= pass 1))
-    (when refine (fprintf stderr "\n"))
+    (when refine (fprintf stderr c"\n"))
     (set (deref spp) acc.samples)
     (accum-free (addr acc))
     ok))
@@ -112,8 +112,8 @@
 (defn frame-name ((o (ptr i8)) (f u32) (name (ptr i8)) (n u64)) void
   (let ((dot (strrchr o 46)))            ; '.'
     (cond ((!= (strchr o 37) null) (snprintf name n o f))   ; '%'
-          ((!= dot null) (snprintf name n "%.*s_%04u%s" (cast i32 (- dot o)) o f dot))
-          (else (snprintf name n "%s_%04u.ppm" o f)))))
+          ((!= dot null) (snprintf name n c"%.*s_%04u%s" (cast i32 (- dot o)) o f dot))
+          (else (snprintf name n c"%s_%04u.ppm" o f)))))
 
 (def disp display::drm (make display::drm :fd -1))
 
@@ -121,7 +121,7 @@
   (let ((out (ptr i8) null) (card (ptr i8) null)
         (W u32 1280) (H u32 720) (hold -1) (nframes u32 0) (rscale u32 1) (spp-arg 0)
         (still false) (no-blend false) (opt 0))
-    (while (!= (set-opt (addr opt) (getopt argc argv "o:d:w:h:s:t:pn:r:b")) -1)
+    (while (!= (set-opt (addr opt) (getopt argc argv c"o:d:w:h:s:t:pn:r:b")) -1)
       (cond ((= opt 111) (set out optarg))                          ; o
             ((= opt 100) (set card optarg))                         ; d
             ((= opt 119) (set W (cast u32 (atoi optarg))))          ; w
@@ -133,13 +133,13 @@
             ((= opt 114) (set rscale (if (> (atoi optarg) 0) (cast u32 (atoi optarg)) 1)))   ; r
             ((= opt 98) (set no-blend true))                        ; b
             (else
-             (fprintf stderr "usage: %s [-o file.ppm [-n frames]] [-p] [-d /dev/dri/cardN]\n       [-w W -h H] [-s spp] [-r scale] [-b] [-t seconds]\n"
+             (fprintf stderr c"usage: %s [-o file.ppm [-n frames]] [-p] [-d /dev/dri/cardN]\n       [-w W -h H] [-s spp] [-r scale] [-b] [-t seconds]\n"
                       (aref argv 0))
              (return 1))))
 
     (tone::init)
     (let ((t0 (now)) (scene (scene::build)) (filebuf (ptr u32) null) (tgt (make display::target)))
-      (fprintf stderr "teapot: %u triangles, %u BVH nodes (%.0f ms)\n" scene.ntri scene.nnode (* (- (now) t0) 1e3))
+      (fprintf stderr c"teapot: %u triangles, %u BVH nodes (%.0f ms)\n" scene.ntri scene.nnode (* (- (now) t0) 1e3))
       (if (!= out null)
           (do (set filebuf (cast (ptr u32) (calloc (* (cast u64 W) H) 4)))
               (set tgt (display::xrgb filebuf W H)))
@@ -148,13 +148,13 @@
                 (display::open-card (addr disp) card)
                 (for (i 0 8)
                   (let ((p (array i8 32)))
-                    (snprintf p 32 "/dev/dri/card%d" i)
+                    (snprintf p 32 c"/dev/dri/card%d" i)
                     (when (and (= (access p F_OK) 0) (display::open-card (addr disp) p)) (break)))))
             (when (< disp.fd 0)
-              (fprintf stderr "no display available; use -o out.ppm\n")
+              (fprintf stderr c"no display available; use -o out.ppm\n")
               ; a runtime check, not a build switch: is a desktop session holding the screen?
-              (when (or (!= (getenv "DISPLAY") null) (!= (getenv "WAYLAND_DISPLAY") null))
-                (fprintf stderr "a desktop session owns the screen: switch to a text console (Ctrl+Alt+F3), log in and run it there\n"))
+              (when (or (!= (getenv c"DISPLAY") null) (!= (getenv c"WAYLAND_DISPLAY") null))
+                (fprintf stderr c"a desktop session owns the screen: switch to a text console (Ctrl+Alt+F3), log in and run it there\n"))
               (return 1))
             (set tgt (display::front (addr disp)))))
 
@@ -180,8 +180,8 @@
                   ; light frames are pipelined: frame f+1 renders while f is blended and shown
                   (pipelined (<= spp MAX-PASS))
                   (next (scene::orbit 0.0)) (f u32 0))
-              (fprintf stderr "animating %ux%u @ %u spp%s on the gpu%s\n" fw fh spp
-                       (if blend " + temporal accumulation" "") (if (!= out null) "" " (Enter or Ctrl-C to stop)"))
+              (fprintf stderr c"animating %ux%u @ %u spp%s on the gpu%s\n" fw fh spp
+                       (if blend c" + temporal accumulation" c"") (if (!= out null) c"" c" (Enter or Ctrl-C to stop)"))
               (set start (now))
               (set tick start)
               (set next (scene::orbit (angle-of out f start nframes)))
@@ -206,16 +206,16 @@
                       (let ((name (array i8 600)))
                         (frame-name out f name 600)
                         (unless (display::write-ppm name frame) (return 1))
-                        (fprintf stderr "\r%s (%u/%u)" name (+ f 1) nframes)
+                        (fprintf stderr c"\r%s (%u/%u)" name (+ f 1) nframes)
                         (when (>= (+ f 1) nframes)
-                          (fprintf stderr "\n")
+                          (fprintf stderr c"\n")
                           (break)))
                       (let ((t (now)))
                         (display::wait-flip (addr disp))
                         (display::blit frame (display::back (addr disp)) scale)
                         (display::flip (addr disp))
                         (when (>= (- t tick) 1.0)
-                          (fprintf stderr "\r%.1f fps " (/ (cast f64 tick-frames) (- t tick)))
+                          (fprintf stderr c"\r%.1f fps " (/ (cast f64 tick-frames) (- t tick)))
                           (set tick t)
                           (set tick-frames 0))
                         (when (and (>= hold 0) (>= (- t start) (cast f64 hold))) (break))
@@ -224,7 +224,7 @@
                           (break))))
                   (+= f 1)))
               (let ((secs (- (now) start)))
-                (fprintf stderr "\n%u frames in %.1f s (%.1f fps) on the gpu\n" frames secs (/ (cast f64 frames) secs)))
+                (fprintf stderr c"\n%u frames in %.1f s (%.1f fps) on the gpu\n" frames secs (/ (cast f64 frames) secs)))
               (return 0))))
 
         ;; ---- still image ----
@@ -237,7 +237,7 @@
               (return 1)))
           (let ((secs (- (now) t1)))
             (when (!= out null)
-              (fprintf stderr "rendered %ux%u @ %u spp on the gpu in %.2f s\n" W H spp secs)
+              (fprintf stderr c"rendered %ux%u @ %u spp on the gpu in %.2f s\n" W H spp secs)
               (return (if (display::write-ppm out tgt) 0 1)))
             ; hold the image: until Enter / Ctrl-C, or for -t seconds
             (cond (key-stop (read-key))         ; the key only ends the hold
@@ -247,7 +247,7 @@
                      (when (and (> (poll (addr p) 1 ms) 0) (!= (isatty 0) 1) (= (read-key) 0))
                        ; stdin at EOF: don't flash and exit
                        (sleep (if (>= hold 0) 0 10))))))
-            (fprintf stderr "rendered %ux%u @ %u spp on the gpu in %.2f s\n" tgt.w tgt.h spp secs)
+            (fprintf stderr c"rendered %ux%u @ %u spp on the gpu in %.2f s\n" tgt.w tgt.h spp secs)
             0))))))
 
 ; the camera angle of animation frame f: evenly around the orbit for a file,
