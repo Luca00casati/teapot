@@ -93,7 +93,7 @@
 
 (defn- new-inst ((op opcode)) inst (make inst :op op :target -1))
 
-(defn- emit ((i inst)) u32
+(defn- emit ((i inst)) u32 :noinline
   (when (= prog.n prog.cap)
     (set prog.cap (if (= prog.cap 0) 1024 (* prog.cap 2)))
     (set prog.code (cast (ptr inst) (libc::realloc prog.code (* (sizeof inst) (cast u64 prog.cap))))))
@@ -165,8 +165,10 @@
 (kir-cmpop <= cmpc.LE)
 
 ;; ------------------------------------------------------------ emitting ---
+; (the emitters are :noinline: the kernel is built once, at startup, and
+; inlining them into every (<- ...) only makes the builder huge to compile)
 
-(defn- emit-op ((d operand) (e expr) (pred u8)) void
+(defn- emit-op ((d operand) (e expr) (pred u8)) void :noinline
   (let ((i (new-inst e.op)))
     (set i.d d)
     (set i.a e.a)
@@ -175,7 +177,7 @@
     (set i.pred pred)
     (emit i)))
 
-(defn- emit-cmp ((fl flag) (c cmp)) void
+(defn- emit-cmp ((fl flag) (c cmp)) void :noinline
   (let ((i (new-inst opcode.CMP)))
     (set i.cond c.cond)
     (set i.flag fl.n)
@@ -208,7 +210,7 @@
   (for (i u32 0 l.nfix) (set (. (aref prog.code (aref l.fix i)) target) l.pos))
   (set l.nfix 0))
 
-(defn- kjump ((op opcode) (fl flag) (l (ptr label))) void
+(defn- kjump ((op opcode) (fl flag) (l (ptr label))) void :noinline
   (let ((i (new-inst op)))
     (set i.flag fl.n)
     (set i.target l.pos)
@@ -227,7 +229,7 @@
 
 ;; -------------------------------------------------------------- memory ---
 
-(defn load ((block i32) (a operand) (b operand) (off u32)) void
+(defn load ((block i32) (a operand) (b operand) (off u32)) void :noinline
   (let ((i (new-inst opcode.LOAD)))
     (set i.a a)
     (set i.b b)
@@ -235,7 +237,7 @@
     (set i.off off)
     (emit i)))
 
-(defn store ((slot i32) (src operand)) void
+(defn store ((slot i32) (src operand)) void :noinline
   (let ((i (new-inst opcode.STORE)))
     (set i.a src)
     (set i.target slot)
