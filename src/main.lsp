@@ -27,8 +27,10 @@
 (import "display")
 (using libc posix io prelude)
 
+; set by the signal handler, read by the loops: atomic, so no load is cached
 (def quit i32 0)
-(defn on-signal ((sig i32)) void (set quit 1))
+(defn on-signal ((sig i32)) void (atomic-store quit 1 :relaxed))
+(defn quitting () bool (!= (atomic-load quit :relaxed) 0))
 
 (defn now () f64
   (let ((ts (make time::timespec)))
@@ -77,7 +79,7 @@
 (defn still-image ((g (ptr gpu::device)) (cam (ptr scene::camera)) (tgt display::target) (disp (ptr display::drm)) (spp (ptr u32)) (refine bool) (key-stop (ptr bool))) bool
   (let ((per-pass u32 4) (acc (accum-new (* tgt.w tgt.h))) (ok true) (pass u32 0))
     (while (!= (% (deref spp) per-pass) 0) (-= per-pass 1))
-    (while (= quit 0)
+    (while (not (quitting))
       (when (>= acc.samples (deref spp))
         ; on screen: keep refining until a key is pressed (or 1024 samples)
         (when (or (not refine) (>= acc.samples 1024)) (break))
@@ -184,7 +186,7 @@
               (set tick start)
               (set next (scene::orbit (angle-of out f start nframes)))
               (when (and pipelined (not (gpu::submit g (addr next) spp (pass-seed 0) 0))) (return 1))
-              (while (= quit 0)
+              (while (not (quitting))
                 (let ((cam next) (ok true))
                   (if pipelined
                       (do
@@ -196,7 +198,7 @@
                         (set cam (scene::orbit (angle-of out f start nframes)))
                         (set ok (frame-passes g (addr cam) frame spp f depth))))
                   (unless ok (return 1))
-                  (when (!= quit 0) (break))
+                  (when (quitting) (break))
                   (when blend (temporal::blend (addr history) framebuf fw fh depth (addr cam) threads))
                   (+= frames 1)
                   (+= tick-frames 1)
@@ -239,7 +241,7 @@
               (return (if (display::write-ppm out tgt) 0 1)))
             ; hold the image: until Enter / Ctrl-C, or for -t seconds
             (cond (key-stop (read-key))         ; the key only ends the hold
-                  ((= quit 0)
+                  ((not (quitting))
                    (let ((ms (cond ((>= hold 0) (* hold 1000)) ((= (isatty 0) 1) -1) (else 10000)))
                          (p (make pollfd :fd 0 :events POLLIN)))
                      (when (and (> (poll (addr p) 1 ms) 0) (!= (isatty 0) 1) (= (read-key) 0))

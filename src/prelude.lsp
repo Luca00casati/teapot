@@ -1,9 +1,5 @@
 ; prelude.lsp — small macros used everywhere.
 
-(defmacro += (place v) `(set ,place (+ ,place ,v)))
-(defmacro -= (place v) `(set ,place (- ,place ,v)))
-(defmacro *= (place v) `(set ,place (* ,place ,v)))
-
 ; (cond (test body...) ... (else body...)): an if / else-if chain
 (defmacro cond (&rest clauses)
   (if (empty? clauses)
