@@ -36,12 +36,12 @@
 ; blocks: node pair, triangle hit half, shading half
 (const BK-NODE 0) (const BK-TRI 1) (const BK-SHADE 2)
 
-(struct reg3 (x operand) (y operand) (z operand))
-(defn- vreg3 () reg3
-  (let ((x (vreg)) (y (vreg)) (z (vreg)))
-    (make reg3 :x x :y y :z z)))
-(defn- c3 ((v reg3) (a i32)) operand (if (= a 0) v.x (if (= a 1) v.y v.z)))
-(defn- r3 ((x operand) (y operand) (z operand)) reg3 (make reg3 :x x :y y :z z))
+(struct reg3 [x operand] [y operand] [z operand])
+(defn- vreg3 [] reg3
+  (let [x (vreg)] [y (vreg)] [z (vreg)]
+    {reg3 :x x :y y :z z}))
+(defn- c3 [v reg3] [a i32] operand (if (= a 0) v.x (if (= a 1) v.y v.z)))
+(defn- r3 [x operand] [y operand] [z operand] reg3 {reg3 :x x :y y :z z})
 
 (def- kdebug bool false)
 ; ray + hit state used by the traversal (allocation order = register order)
@@ -53,7 +53,7 @@
 ; temporaries t0..t10, also as an array for computed indices: (tn i)
 (defmacro- def-temps (n) `(do ,@(map (lambda (i) `(def ,(sym c"t" i) operand)) (range n)) (def temps (array operand ,n))))
 (def-temps 11)
-(defn- tn ((i i32)) operand (aref temps i))
+(defn- tn [i i32] operand temps[i])
 ; shading state that survives a traversal
 (def sp reg3) (def sn reg3) (def sg reg3) (def sd reg3)
 (def sm operand)
@@ -67,9 +67,9 @@
 (def dbg-nodes operand) (def dbg-tris operand)
 
 (defmacro- alloc-temps (n)
-  `(do ,@(map (lambda (i) `(do (set ,(sym c"t" i) (vreg)) (set (aref temps ,i) ,(sym c"t" i)))) (range n))))
+  `(do ,@(map (lambda (i) `(do (set ,(sym c"t" i) (vreg)) (set temps[,i] ,(sym c"t" i)))) (range n))))
 
-(defn- alloc-registers () void :optnone
+(defn- alloc-registers [] void :optnone
   ; vector registers are numbered in the order of these calls
   (set ro (vreg3)) (set rd (vreg3)) (set ri (vreg3)) (set rq (vreg3))
   (set ht (vreg))
@@ -87,22 +87,22 @@
   (set naddr (as-u (sreg 11))) (set taddr (as-u (sreg 12)))
   (set dbg-nodes (as-u (sreg 13))) (set dbg-tris (as-u (sreg 14))))
 
-(defn- dot3 ((d operand) (a reg3) (b reg3) (tm operand)) void :optnone
+(defn- dot3 [d operand] [a reg3] [b reg3] [tm operand] void :optnone
   (<- d (* a.x b.x))
   (<- tm (* a.y b.y)) (<- d (+ d tm))
   (<- tm (* a.z b.z)) (<- d (+ d tm)))
 
-(defn- normalize3 ((d reg3) (a reg3) (tm operand)) void :optnone
+(defn- normalize3 [d reg3] [a reg3] [tm operand] void :optnone
   (dot3 tm a a (if (same-reg d.x a.x) t10 d.x))
   (<- tm (rsq tm))
   (<- d.x (* a.x tm)) (<- d.y (* a.y tm)) (<- d.z (* a.z tm)))
 
 ; stateless hash of (src ^ key) → [0,1) in dst; 16-bit multipliers because a
 ; 32x16 multiply is a single instruction on most GPUs
-(defn- hash01 ((dst operand) (src operand) (key u32) (tm operand)) void :optnone
-  (let ((x (as-u dst)) (tt (as-u tm)))
+(defn- hash01 [dst operand] [src operand] [key u32] [tm operand] void :optnone
+  (let [x (as-u dst)] [tt (as-u tm)]
     (<- x (^ (as-u src) key))
-    (for (_r 0 2)
+    (for [_r 0 2]
       (<- tt (>> x 16)) (<- x (^ x tt))
       (<- x (* x 0x7feb))
       (<- tt (>> x 15)) (<- x (^ x tt))
@@ -113,7 +113,7 @@
 
 ; per-pixel offset in [0,1): interleaved gradient noise of the pixel position,
 ; with the axes weighted (wx, wy) and shifted by k; cheap and well spread
-(defn- ign ((dst operand) (wx f32) (wy f32) (k f32) (tm operand)) void :optnone
+(defn- ign [dst operand] [wx f32] [wy f32] [k f32] [tm operand] void :optnone
   (<- dst (+ lane-x gx)) (<- tm (+ lane-y gy))
   (<- dst (* dst wx)) (<- tm (* tm wy))
   (<- dst (+ dst tm)) (<- dst (+ dst k))
@@ -121,15 +121,15 @@
 
 ; sample s of a 2D R2 low-discrepancy sequence, rotated per pixel; s keeps
 ; counting across passes and animation frames, so it also stratifies over time
-(defn- r2-sample ((du operand) (dv operand) (key f32) (vtmp operand)) void :optnone
+(defn- r2-sample [du operand] [dv operand] [key f32] [vtmp operand] void :optnone
   (ign du 0.06711056 0.00583715 key vtmp)
   (ign dv 0.00583715 0.06711056 (+ key 0.5) vtmp)
   (<- tmp (* r2 0.7548776662)) (<- du (+ du tmp)) (<- du (frac du))
   (<- tmp (* r2 0.5698402910)) (<- dv (+ dv tmp)) (<- dv (frac dv)))
 
 ; uniform random float in [0,1) per lane (xorshift32)
-(defn- rand01 ((dst operand) (vtmp operand)) void :optnone
-  (let ((tt (as-u vtmp)))
+(defn- rand01 [dst operand] [vtmp operand] void :optnone
+  (let [tt (as-u vtmp)]
     (<- tt (<< rng 13)) (<- rng (^ rng tt))
     (<- tt (>> rng 17)) (<- rng (^ rng tt))
     (<- tt (<< rng 5)) (<- rng (^ rng tt))
@@ -137,7 +137,7 @@
     (<- dst (+ vtmp -1.0))))
 
 ; clamp a reciprocal so (b - o) * inv never makes inf - inf
-(defn- clamp-big ((v operand)) void :optnone
+(defn- clamp-big [v operand] void :optnone
   (<- v (min v 1e20))
   (<- v (max v -1e20)))
 
@@ -148,7 +148,7 @@
 ; occluded. Lanes may enter with ht = -1 to skip the ray entirely. The floor
 ; is ignored (shadow rays go up towards the light).
 
-(defn- traverse ((shadow bool)) void :optnone
+(defn- traverse [shadow bool] void :optnone
   (<- ri.x (inv rd.x)) (<- ri.y (inv rd.y)) (<- ri.z (inv rd.z))
   (clamp-big ri.x) (clamp-big ri.y) (clamp-big ri.z)
   (<- rq.x (* ro.x ri.x)) (<- rq.y (* ro.y ri.y)) (<- rq.z (* ro.z ri.z))
@@ -159,7 +159,7 @@
 
   ; pick the node layout for the octant of lane 0's direction
   (<- lbase 0)
-  (for (a 0 3)
+  (for [a 0 3]
     (<- f1 (< (lane0 (c3 rd a)) 0.0))
     (<- (at lbase f1) (+ lbase (as-u (uni (+ U-STRIDE a))))))
 
@@ -167,30 +167,30 @@
   ; the node block and node i+1 in 8-15. Descending to the first child (i+1)
   ; then needs no load.
   (<- cached 0xfffffff0)                ; nothing cached yet
-  (let ((top (here)) (end-walk (new-label)) (to-tri (new-label))
-        (slot-at (make (array label 2) (new-label) (new-label))))
+  (let [top (here)] [end-walk (new-label)] [to-tri (new-label)]
+       [slot-at {(array label 2) (new-label) (new-label)}]
     (when kdebug (<- dbg-nodes (+ dbg-nodes 1)))
     (<- f1 (>= node (as-u (uni U-NNODES))))
     (jmp-if f1 end-walk)
     (<- f1 (= node cached))
-    (jmp-if f1 (aref slot-at 0))
+    (jmp-if f1 slot-at[0])
     (<- (as-u tmp) (+ cached 1))
     (<- f1 (= node (as-u tmp)))
-    (jmp-if f1 (aref slot-at 1))
+    (jmp-if f1 slot-at[1])
     (<- naddr (<< node 1))
     (load BK-NODE naddr lbase 0)
     (<- cached node)
 
     ; node record: bmin .0-2, skip .3, bmax .4-6, first_tri << 3 | count .7
-    (for (slot 0 2)
-      (let ((nb (* slot 8)) (miss (new-label)) (inner (new-label)))
-        (bind! (aref slot-at slot))
+    (for [slot 0 2]
+      (let [nb (* slot 8)] [miss (new-label)] [inner (new-label)]
+        (bind! slot-at[slot])
         ; slab test, scheduled so neighbouring instructions are independent:
         ; in-order GPU cores stall on a dependent op
-        (for (a 0 3)                     ; t(2a) = near plane, t(2a+1) = far plane
+        (for [a 0 3]                     ; t(2a) = near plane, t(2a+1) = far plane
           (<- (tn (* 2 a)) (* (c3 ri a) (blk BK-NODE (+ nb a))))
           (<- (tn (+ (* 2 a) 1)) (* (c3 ri a) (blk BK-NODE (+ nb 4 a)))))
-        (for (a 0 3)
+        (for [a 0 3]
           (<- (tn (* 2 a)) (- (tn (* 2 a)) (c3 rq a)))
           (<- (tn (+ (* 2 a) 1)) (- (tn (+ (* 2 a) 1)) (c3 rq a))))
         (<- t6 (min t0 t1)) (<- t7 (min t2 t3)) (<- t8 (min t4 t5))
@@ -217,7 +217,7 @@
     ; leaf: test each triangle. Its first 64 bytes decide the hit; the
     ; shading half is only loaded when a lane hits.
     (bind! to-tri)
-    (let ((tri-loop (here)) (done (new-label)))
+    (let [tri-loop (here)] [done (new-label)]
       (when kdebug (<- dbg-tris (+ dbg-tris 1)))
       (<- taddr (<< tri 3))
       (load BK-TRI taddr (as-u (uni U-TRI-BASE)) 0)
@@ -227,7 +227,7 @@
       ;   TRI 12-14 n0   SHADE 0-2 dn1  SHADE 4-6 dn2  SHADE 8-10 geometric normal
       ; Everything is kept multiplied by det = N·D so no division is needed
       ; to decide a hit; t, u, v are divided out only when some lane hits.
-      (let ((no-hit (new-label)))
+      (let [no-hit (new-label)]
         ; (scheduled in independent groups, see the slab test)
         ; det = N·D → t0;  t' = d - N·O → t1
         (<- t0 (* rd.x (blk BK-TRI 0))) (<- t1 (* ro.x (blk BK-TRI 0)))
@@ -267,7 +267,7 @@
             (do
               (<- t5 (* t5 t0)) (<- t6 (* t6 t0))   ; u, v
               (load BK-SHADE taddr (as-u (uni U-TRI-BASE)) 4)
-              (for (a 0 3)
+              (for [a 0 3]
                 (<- t7 (* t6 (blk BK-SHADE (+ 4 a))))               ; v * dn2
                 (<- (at (c3 hn a) f0) (* t5 (blk BK-SHADE a)))      ; u * dn1
                 (<- (at (c3 hn a) f0) (+ (c3 hn a) (blk BK-TRI (+ 12 a))))   ; + n0
@@ -302,14 +302,14 @@
 ;; ------------------------------------------------------------- shading ---
 
 ; sky(dir) → d, using s as scratch
-(defn- sky3 ((d reg3) (ydir operand) (s operand)) void :optnone
+(defn- sky3 [d reg3] [ydir operand] [s operand] void :optnone
   (<- s (max ydir 0.0))
   (<- s (sqrt s))
-  (for (a 0 3)
+  (for [a 0 3]
     (<- (c3 d a) (* s (- (axis scene::sky-zenith a) (axis scene::sky-horizon a))))
     (<- (c3 d a) (+ (c3 d a) (axis scene::sky-horizon a)))))
 
-(defn- bounce ((last bool) (stratified bool)) void :optnone
+(defn- bounce [last bool] [stratified bool] void :optnone
   (<- ht 1e6)
   (traverse false)
   (when stratified                       ; primary bounce: keep the depth,
@@ -318,18 +318,18 @@
     (<- (at dep f0) (- ht)))
 
   ; miss lanes: add sky, kill throughput
-  (let ((sk (r3 t1 t2 t3)))
+  (let [sk (r3 t1 t2 t3)]
     (<- f0 (= hm 0.0))
     (<- t0 0.0) (<- (at t0 f0) 1.0)
     (sky3 sk rd.y t4)
-    (for (a 0 3)
+    (for [a 0 3]
       (<- t5 (* (c3 thr a) t0)) (<- t5 (* t5 (c3 sk a)))
       (<- (c3 acc a) (+ (c3 acc a) t5))))
   (<- t0 (+ (- t0) 1.0))
-  (for (a 0 3) (<- (c3 thr a) (* (c3 thr a) t0)))
+  (for [a 0 3] (<- (c3 thr a) (* (c3 thr a) t0)))
 
   ; hit point, oriented normals
-  (for (a 0 3)
+  (for [a 0 3]
     (<- (c3 sp a) (* (c3 rd a) ht)) (<- (c3 sp a) (+ (c3 sp a) (c3 ro a)))
     (<- (c3 sd a) (c3 rd a))
     (<- (c3 sg a) (c3 hg a)))
@@ -337,10 +337,10 @@
   (normalize3 sn hn t0)
   (dot3 t0 sg sd t1)
   (<- f0 (> t0 0.0))
-  (for (a 0 3) (<- (at (c3 sg a) f0) (- (c3 sg a))))
+  (for [a 0 3] (<- (at (c3 sg a) f0) (- (c3 sg a))))
   (dot3 t0 sn sg t1)
   (<- f0 (< t0 0.0))
-  (for (a 0 3) (<- (at (c3 sn a) f0) (- (c3 sn a))))
+  (for [a 0 3] (<- (at (c3 sn a) f0) (- (c3 sn a))))
 
   ; shadow ray towards a jittered point on a square area light
   (if stratified
@@ -353,9 +353,9 @@
   (<- rd.z (+ t1 (uni (+ U-LIGHT 2)))) (<- rd.z (- rd.z sp.z))
   (dot3 t0 rd rd t1)
   (<- t1 (rsq t0))
-  (for (a 0 3) (<- (c3 rd a) (* (c3 rd a) t1)))
+  (for [a 0 3] (<- (c3 rd a) (* (c3 rd a) t1)))
   (<- ht (* t0 t1))                      ; distance to the light sample
-  (for (a 0 3) (<- t2 (* (c3 sg a) 2e-3)) (<- (c3 ro a) (+ (c3 sp a) t2)))
+  (for [a 0 3] (<- t2 (* (c3 sg a) 2e-3)) (<- (c3 ro a) (+ (c3 sp a) t2)))
   ; no shadow ray for lanes facing away from the light or that hit nothing
   (dot3 t0 sg rd t1)
   (<- f0 (<= t0 0.0)) (<- (at ht f0) -1.0)
@@ -363,15 +363,15 @@
   (traverse true)
 
   ; local shading: vis → hn.x, n·l → hn.y
-  (let ((vis hn.x) (ndl hn.y) (h (r3 t0 t1 t2)) (alb (r3 t8 t9 t10)) (skn hg)
-        (dark (vec3 0.16 0.17 0.20)) (light (vec3 0.78 0.77 0.74)) (red (vec3 0.62 0.07 0.05))
-        (fog (vec3 0.80 0.84 0.91)))
+  (let [vis hn.x] [ndl hn.y] [h (r3 t0 t1 t2)] [alb (r3 t8 t9 t10)] [skn hg]
+       [dark (vec3 0.16 0.17 0.20)] [light (vec3 0.78 0.77 0.74)] [red (vec3 0.62 0.07 0.05)]
+       [fog (vec3 0.80 0.84 0.91)]
     (<- f0 (> ht 0.0))
     (<- vis 0.0) (<- (at vis f0) 1.0)
     (dot3 ndl sn rd t0)
     (<- ndl (max ndl 0.0))
     ; half vector
-    (for (a 0 3) (<- (c3 h a) (- (c3 rd a) (c3 sd a))))
+    (for [a 0 3] (<- (c3 h a) (- (c3 rd a) (c3 sd a))))
     (normalize3 h h t3)
     (dot3 t3 sn h t4)
     (<- t3 (max t3 0.0))
@@ -385,18 +385,18 @@
     ; albedo: checkerboard floor, red teapot → t8 t9 t10
     (<- t7 (floor sp.x)) (<- t8 (floor sp.z)) (<- t7 (+ t7 t8))
     (<- t7 (* t7 0.5)) (<- t7 (frac t7)) (<- t7 (* t7 2.0))
-    (for (a 0 3)
+    (for [a 0 3]
       (<- (c3 alb a) (* t7 (- (axis light a) (axis dark a))))
       (<- (c3 alb a) (+ (c3 alb a) (axis dark a))))
-    (for (a 0 3) (<- (at (c3 alb a) f0) (axis red a)))
+    (for [a 0 3] (<- (at (c3 alb a) f0) (axis red a)))
     ; direct = (albedo * n·l + spec) * vis * light colour → t0 t1 t2
-    (for (a 0 3)
+    (for [a 0 3]
       (<- (tn a) (* (c3 alb a) ndl)) (<- (tn a) (+ (tn a) t3))
       (<- (tn a) (* (tn a) vis)) (<- (tn a) (* (tn a) (axis scene::light-col a))))
     ; ambient sky light: albedo * sky(n) * (0.231 + 0.154 n.y)
     (sky3 skn sn.y t4)
     (<- t5 (* sn.y 0.154)) (<- t5 (+ t5 0.231))
-    (for (a 0 3)
+    (for [a 0 3]
       (<- t7 (* (c3 skn a) (c3 alb a))) (<- t7 (* t7 t5))
       (<- (tn a) (+ (tn a) t7)))
     ; Fresnel (Schlick) → t6
@@ -416,7 +416,7 @@
     (<- t7 (exp2 t7))                    ; e = exp(-0.02 d)
     ; acc += thr * (1 - F) * lerp(fog, local, e);  thr *= F
     (<- t9 (+ (- t6) 1.0))
-    (for (a 0 3)
+    (for [a 0 3]
       (<- (tn a) (+ (tn a) (- (axis fog a)))) (<- (tn a) (* (tn a) t7)) (<- (tn a) (+ (tn a) (axis fog a)))
       (<- (tn a) (* (tn a) t9)) (<- (tn a) (* (tn a) (c3 thr a)))
       (<- (c3 acc a) (+ (c3 acc a) (tn a)))
@@ -425,15 +425,15 @@
   ; reflected ray
   (dot3 t0 sd sn t1)
   (<- t0 (* t0 -2.0))
-  (for (a 0 3)
+  (for [a 0 3]
     (<- t1 (* (c3 sn a) t0)) (<- (c3 rd a) (+ (c3 sd a) t1))
     (<- t2 (* (c3 sg a) 2e-3)) (<- (c3 ro a) (+ (c3 sp a) t2)))
   (when last
-    (let ((sr (r3 t1 t2 t3)))
+    (let [sr (r3 t1 t2 t3)]
       (sky3 sr rd.y t4)
-      (for (a 0 3) (<- t5 (* (c3 thr a) (c3 sr a))) (<- (c3 acc a) (+ (c3 acc a) t5))))))
+      (for [a 0 3] (<- t5 (* (c3 thr a) (c3 sr a))) (<- (c3 acc a) (+ (c3 acc a) t5))))))
 
-(defn- kernel-main () void :optnone
+(defn- kernel-main [] void :optnone
   ; tile origin as float scalars
   (<- gx group-x)
   (<- gy group-y)
@@ -449,18 +449,18 @@
   (<- rng (^ rng (as-u (uni U-SEED))))   ; fresh random stream per pass
   (<- rng (| rng 1))                     ; xorshift state must be non-zero
 
-  (for (a 0 3) (<- (c3 acc a) 0.0))
+  (for [a 0 3] (<- (c3 acc a) 0.0))
   (<- sample 0)
   (<- r2 (uni U-SAMPLE-BASE))            ; R2 sample index continues across passes
 
-  (let ((sample-loop (here)))
+  (let [sample-loop (here)]
     ; camera ray through a jittered point of the pixel
     (r2-sample t2 t3 0.0 t4)
     (<- t0 (+ lane-x gx)) (<- t0 (+ t0 t2))
     (<- t1 (+ lane-y gy)) (<- t1 (+ t1 t3))
     (<- t0 (* t0 (uni U-INV-W))) (<- t0 (+ t0 -1.0)) (<- t0 (* t0 (uni U-TAN-X)))
     (<- t1 (* t1 (uni U-INV-H))) (<- t1 (+ (- t1) 1.0)) (<- t1 (* t1 (uni U-TAN-Y)))
-    (for (a 0 3)
+    (for [a 0 3]
       (<- (c3 rd a) (* t0 (uni (+ U-RIGHT a))))
       (<- t2 (* t1 (uni (+ U-UP a)))) (<- (c3 rd a) (+ (c3 rd a) t2))
       (<- (c3 rd a) (+ (c3 rd a) (uni (+ U-FWD a))))
@@ -487,8 +487,8 @@
           (jmp-if f1 sample-loop)
 
           ; average, ACES tone curve, gamma, pack to XRGB8888
-          (for (a 0 3)
-            (let ((c (c3 acc a)))
+          (for [a 0 3]
+            (let [c (c3 acc a)]
               (<- c (* c (uni U-INV-SPP)))
               (<- c (* c 0.9))
               (<- t0 (* c 2.51)) (<- t0 (+ t0 0.03)) (<- t0 (* t0 c))
@@ -499,7 +499,7 @@
               (<- t0 (pow t0 t2))
               (<- t0 (* t0 255.0)) (<- t0 (+ t0 0.5))
               (<- (as-u (tn (+ a 4))) t0))))))
-  (let ((px (as-u t10)))
+  (let [px (as-u t10)]
     (<- px (<< (as-u t4) 16))
     (<- (as-u t5) (<< (as-u t5) 8))
     (<- px (| px (as-u t5)))
@@ -509,8 +509,8 @@
     (end)))
 
 ; the kernel as a fresh program in `prog`; debug = traversal heat map
-(defn build ((debug bool)) void
-  (set prog (make program))
+(defn build [debug bool] void
+  (set prog {program})
   (set kdebug debug)
   (alloc-registers)
   (kernel-main))
