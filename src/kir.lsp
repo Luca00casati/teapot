@@ -188,14 +188,64 @@
 ; (<- dst e): one instruction. dst is a register, (at reg flag) for a write
 ; predicated on the flag, or a flag when e is a compare. e is an operator
 ; form, an operand, or a number.
+;
+; The macro reads e's operator when the program is compiled and expands to
+; one call of an emitter with the opcode already chosen — (<- t0 (* a b)) is
+; (emit2 opcode.MUL t0 a b 0 false) — so building the kernel makes no expr
+; values and the builder stays small (and quick to compile). Anything it
+; doesn't recognise (an expr kept in a variable, say) goes the general way.
+
+(defn- emit2 ((op opcode) (d operand) (a operand) (b operand) (pred u8) (sat bool)) void :noinline
+  (let ((i (new-inst op)))
+    (set i.d d)
+    (set i.a a)
+    (set i.b b)
+    (set i.sat sat)
+    (set i.pred pred)
+    (emit i)))
+
+(defn- emit-cmp2 ((fl u8) (c cmpc) (a operand) (b operand)) void :noinline
+  (let ((i (new-inst opcode.CMP)))
+    (set i.cond c)
+    (set i.flag fl)
+    (set i.a a)
+    (set i.b b)
+    (emit i)))
+
+; the opcode or condition an operator stands for (nil: not one of them)
+(defmeta kir-binop (head)
+  (cond ((eq head '+) 'ADD) ((eq head '*) 'MUL) ((eq head '&) 'AND) ((eq head '|) 'OR) ((eq head '^) 'XOR)
+        ((eq head '<<) 'SHL) ((eq head '>>) 'SHR) ((eq head 'min) 'MIN) ((eq head 'max) 'MAX) ((eq head 'pow) 'POW)
+        (else nil)))
+(defmeta kir-unop (head)
+  (cond ((eq head 'floor) 'FLOOR) ((eq head 'frac) 'FRAC) ((eq head 'inv) 'INV) ((eq head 'sqrt) 'SQRT)
+        ((eq head 'rsq) 'RSQ) ((eq head 'exp2) 'EXP2) (else nil)))
+(defmeta kir-cmp (head)
+  (cond ((eq head '=) 'EQ) ((eq head '!=) 'NE) ((eq head '>) 'GT) ((eq head '>=) 'GE) ((eq head '<) 'LT)
+        ((eq head '<=) 'LE) (else nil)))
+
 (defmacro <- (d e)
-  (let ((t (type-of e))
-        (masked (and (list? d) (eq (first d) 'at)))
+  (let ((masked (and (list? d) (eq (first d) 'at)))
         (dst (if masked (nth d 1) d))
-        (pred (if masked `(+ 1 (. ,(nth d 2) n)) 0)))
-    (cond ((eq t 'cmp) `(emit-cmp ,d ,e))
-          ((eq t 'expr) `(emit-op ,dst ,e ,pred))
-          (else `(emit-op ,dst (mov (arg ,e)) ,pred)))))
+        (pred (if masked `(+ 1 (. ,(nth d 2) n)) 0))
+        (sat (and (list? e) (eq (first e) 'sat)))
+        (x (if sat (nth e 1) e))
+        (head (if (and (list? x) (not (empty? x)) (symbol? (first x))) (first x) nil))
+        (n (if (list? x) (- (length x) 1) 0)))
+    (cond
+      ((and head (= n 2) (kir-cmp head))
+       `(emit-cmp2 (. ,d n) ,(list '. 'cmpc (kir-cmp head)) (arg ,(nth x 1)) (arg ,(nth x 2))))
+      ((and head (= n 2) (kir-binop head))
+       `(emit2 ,(list '. 'opcode (kir-binop head)) ,dst (arg ,(nth x 1)) (arg ,(nth x 2)) ,pred ,sat))
+      ((and head (= n 2) (eq head '-))
+       `(emit2 opcode.ADD ,dst (arg ,(nth x 1)) (- (arg ,(nth x 2))) ,pred ,sat))
+      ((and head (= n 1) (kir-unop head))
+       `(emit2 ,(list '. 'opcode (kir-unop head)) ,dst (arg ,(nth x 1)) none ,pred ,sat))
+      (else                                ; an operand, a number, or an expr/cmp value
+       (let ((t (type-of e)))
+         (cond ((eq t 'cmp) `(emit-cmp ,d ,e))
+               ((eq t 'expr) `(emit-op ,dst ,e ,pred))
+               (else `(emit2 opcode.MOV ,dst (arg ,e) none ,pred false))))))))
 
 ;; -------------------------------------------------------------- labels ---
 
