@@ -118,30 +118,31 @@
   (let ((m MODS)) (set m.nomask 1) (eu-emit EU-SEND m dst (gvec src TY-UD) (gimm desc TY-UD) 2 sfid)))
 
 (defn- gen-op ((o operand)) gop
-  (let ((ty u32 (if (= o.ty kir::TY-F) TY-F TY-UD)) (i (cast u32 o.idx)) (g (gnull ty)))
-    (cond ((= o.kind K-V) (set g (gvec (+ G-VEC (* 2 i)) ty)))
-          ((= o.kind K-S) (set g (gsc (if (< i 8) G-SC0 G-SC1) (% i 8) ty)))
-          ((= o.kind K-U) (set g (gsc (+ G-UNI (/ i 8)) (% i 8) ty)))
-          ((= o.kind K-B) (set g (gsc (+ G-BLK (/ i 8)) (% i 8) ty)))
-          ((= o.kind K-LANE0) (set g (gsc (+ G-VEC (* 2 i)) 0 ty)))
-          ((= o.kind K-LANEX) (set g (gvec G-LX ty)))
-          ((= o.kind K-LANEY) (set g (gvec G-LY ty)))
-          ((= o.kind K-GROUPX) (set g (gsc 0 1 ty)))
-          ((= o.kind K-GROUPY) (set g (gsc 0 6 ty)))
-          ((= o.kind K-IMM) (return (gimm o.imm ty)))
-          (else (return g)))
+  (let ((ty u32 (if (= o.ty kir::otype.F) TY-F TY-UD)) (i (cast u32 o.idx)) (g (gnull ty)))
+    (case o.kind
+      (okind.V (set g (gvec (+ G-VEC (* 2 i)) ty)))
+      (okind.S (set g (gsc (if (< i 8) G-SC0 G-SC1) (% i 8) ty)))
+      (okind.U (set g (gsc (+ G-UNI (/ i 8)) (% i 8) ty)))
+      (okind.B (set g (gsc (+ G-BLK (/ i 8)) (% i 8) ty)))
+      (okind.LANE0 (set g (gsc (+ G-VEC (* 2 i)) 0 ty)))
+      (okind.LANEX (set g (gvec G-LX ty)))
+      (okind.LANEY (set g (gvec G-LY ty)))
+      (okind.GROUPX (set g (gsc 0 1 ty)))
+      (okind.GROUPY (set g (gsc 0 6 ty)))
+      (okind.IMM (return (gimm o.imm ty)))
+      (else (return g)))
     (set g.neg (cast u32 o.neg))
     g))
 
-(defn- alu-op ((op u8)) u32
-  (cond ((= op OP-MOV) EU-MOV) ((= op OP-ADD) EU-ADD) ((= op OP-MUL) EU-MUL) ((= op OP-AND) EU-AND)
-        ((= op OP-OR) EU-OR) ((= op OP-XOR) EU-XOR) ((= op OP-SHL) EU-SHL) ((= op OP-SHR) EU-SHR)
-        ((= op OP-FLOOR) EU-RNDD) (else EU-FRC)))
-(defn- math-fn ((op u8)) u32
-  (cond ((= op OP-INV) MF-INV) ((= op OP-SQRT) MF-SQRT) ((= op OP-RSQ) MF-RSQ) ((= op OP-EXP2) MF-EXP) (else MF-POW)))
-(defn- cond-mod ((c u8)) u32
-  (cond ((= c C-EQ) CM-Z) ((= c C-NE) CM-NZ) ((= c C-GT) CM-G) ((= c C-GE) CM-GE) ((= c C-LT) CM-L) (else CM-LE)))
-(defn- is-jump ((op u8)) bool (and (>= op OP-JMP) (<= op OP-JALL)))
+(defn- alu-op ((op opcode)) u32
+  (case op
+    (opcode.MOV EU-MOV) (opcode.ADD EU-ADD) (opcode.MUL EU-MUL) (opcode.AND EU-AND) (opcode.OR EU-OR)
+    (opcode.XOR EU-XOR) (opcode.SHL EU-SHL) (opcode.SHR EU-SHR) (opcode.FLOOR EU-RNDD) (else EU-FRC)))
+(defn- math-fn ((op opcode)) u32
+  (case op (opcode.INV MF-INV) (opcode.SQRT MF-SQRT) (opcode.RSQ MF-RSQ) (opcode.EXP2 MF-EXP) (else MF-POW)))
+(defn- cond-mod ((c cmpc)) u32
+  (case c (cmpc.EQ CM-Z) (cmpc.NE CM-NZ) (cmpc.GT CM-G) (cmpc.GE CM-GE) (cmpc.LT CM-L) (else CM-LE)))
+(defn- is-jump ((op opcode)) bool (and (>= op opcode.JMP) (<= op opcode.JALL)))
 
 ;; ------------------------------------------------------- IR → EU code ---
 
@@ -157,7 +158,7 @@
     (eu-mov HEADER-MODS (gvec G-HDR2 TY-UD) (gvec 0 TY-UD))
     (for (i u32 0 p.n)
       (let ((k (addr (aref p.code i)))
-            (scalar (if (= k.op OP-CMP) (and (not (is-vector k.a)) (not (is-vector k.b))) (= k.d.kind K-S)))
+            (scalar (if (= k.op opcode.CMP) (and (not (is-vector k.a)) (not (is-vector k.b))) (= k.d.kind okind.S)))
             (d (gen-op k.d)) (a (gen-op k.a)) (b (gen-op k.b))
             (m (if scalar SCALAR-MODS MODS)))
         (set (aref at i) enc.n)
@@ -168,9 +169,9 @@
           (set m.pred PR-NORMAL)
           (set m.flag (* (- (cast u32 k.pred) 1) 2)))
         (set m.sat (cast u32 k.sat))
-        (cond
-          ((or (= k.op OP-MOV) (= k.op OP-FLOOR) (= k.op OP-FRAC)) (op1 (alu-op k.op) m d a))
-          ((= k.op OP-MUL)
+        (case k.op
+          ((opcode.MOV opcode.FLOOR opcode.FRAC) (op1 (alu-op k.op) m d a))
+          (opcode.MUL
            ; 32x16 integer multiply: a uint immediate of 16 bits is encoded as UW
            (when (and (= b.file RF-IMM) (= b.ty TY-UD))
              (when (> b.imm 0xffff)
@@ -179,25 +180,25 @@
              (set b.ty TY-UW)
              (set b.imm (| b.imm (<< b.imm 16))))
            (op2 EU-MUL m d a b))
-          ((or (= k.op OP-MIN) (= k.op OP-MAX))
-           (set m.cmod (if (= k.op OP-MIN) CM-L CM-GE))
+          ((opcode.MIN opcode.MAX)
+           (set m.cmod (if (= k.op opcode.MIN) CM-L CM-GE))
            (op2 EU-SEL m d a b))
-          ((or (= k.op OP-ADD) (= k.op OP-AND) (= k.op OP-OR) (= k.op OP-XOR) (= k.op OP-SHL) (= k.op OP-SHR))
+          ((opcode.ADD opcode.AND opcode.OR opcode.XOR opcode.SHL opcode.SHR)
            (op2 (alu-op k.op) m d a b))
-          ((or (= k.op OP-INV) (= k.op OP-SQRT) (= k.op OP-RSQ) (= k.op OP-EXP2))
+          ((opcode.INV opcode.SQRT opcode.RSQ opcode.EXP2)
            (eu-emit EU-MATH m d a (gnull TY-F) 2 (math-fn k.op)))
-          ((= k.op OP-POW) (eu-emit EU-MATH m d a b 2 MF-POW))
-          ((= k.op OP-CMP)
+          (opcode.POW (eu-emit EU-MATH m d a b 2 MF-POW))
+          (opcode.CMP
            (set m.cmod (cond-mod k.cond))
            (set m.flag (* (cast u32 k.flag) 2))
            (op2 EU-CMP m (gnull a.ty) a b))
-          ((is-jump k.op)
+          ((opcode.JMP opcode.JIF opcode.JANY opcode.JNONE opcode.JALL)
            (let ((ip (make gop :file RF-ARF :ty TY-UD :nr 0xA0 :vs 4 :w 1)) (j SCALAR-MODS))
              (set j.flag (* (cast u32 k.flag) 2))
-             (set j.pred (cond ((= k.op OP-JMP) 0) ((= k.op OP-JIF) PR-NORMAL) ((= k.op OP-JALL) PR-ALL16H) (else PR-ANY16H)))
-             (set j.pinv (cast u32 (= k.op OP-JNONE)))
+             (set j.pred (case k.op (opcode.JMP 0) (opcode.JIF PR-NORMAL) (opcode.JALL PR-ALL16H) (else PR-ANY16H)))
+             (set j.pinv (cast u32 (= k.op opcode.JNONE)))
              (op2 EU-JMPI j ip ip (gimm 0 TY-D))))
-          ((= k.op OP-LOAD)
+          (opcode.LOAD
            ; constant-cache OWord block read of 4 owords from binding table entry 0
            (let ((h u32 (if hdr-toggle G-HDR2 G-HDR)))
              (set hdr-toggle (not hdr-toggle))
@@ -206,7 +207,7 @@
                (op2 EU-ADD SCALAR-MODS (gsc h 2 TY-UD) (gsc h 2 TY-UD) (gimm k.off TY-UD)))
              (eu-send SFID-CONST-CACHE (gvec (+ G-BLK (* 2 (cast u32 k.target))) TY-UW) h
                       (| (<< 1 25) (<< 2 20) (<< 1 19) (<< 3 8)))))
-          ((= k.op OP-STORE)
+          (opcode.STORE
            ; media block write of the 4x4 tile: 16 bytes wide, 4 rows
            (eu-mov HEADER-MODS (gvec G-ST TY-UD) (gvec 0 TY-UD))
            (op2 EU-SHL SCALAR-MODS (gsc G-ST 0 TY-UD) (gsc 0 1 TY-UD) (gimm 4 TY-UD))
@@ -217,7 +218,7 @@
              (set all.nomask 1)
              (eu-mov all (gvec (+ G-ST 1) TY-UD) raw))
            (eu-send SFID-RENDER-CACHE (gnull TY-UD) G-ST (| (<< 3 25) (<< 1 19) (<< 10 14) (cast u32 k.target))))
-          (else                                 ; END
+          (opcode.END
            (eu-mov HEADER-MODS (gvec G-EOT TY-UD) (gvec 0 TY-UD))
            (eu-send SFID-THREAD-SPAWNER (gnull TY-UD) G-EOT 0x82000010)))))
     (set (aref at p.n) enc.n)

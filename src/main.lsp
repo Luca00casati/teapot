@@ -78,6 +78,7 @@
 ; pressed; *key-stop then tells the caller.
 (defn still-image ((g (ptr gpu::device)) (cam (ptr scene::camera)) (tgt display::target) (disp (ptr display::drm)) (spp (ptr u32)) (refine bool) (key-stop (ptr bool))) bool
   (let ((per-pass u32 4) (acc (accum-new (* tgt.w tgt.h))) (ok true) (pass u32 0))
+    (defer (accum-free (addr acc)))
     (while (!= (% (deref spp) per-pass) 0) (-= per-pass 1))
     (while (not (quitting))
       (when (>= acc.samples (deref spp))
@@ -95,17 +96,16 @@
       (+= pass 1))
     (when refine (fprintf stderr c"\n"))
     (set (deref spp) acc.samples)
-    (accum-free (addr acc))
     ok))
 
 ; one animation frame with more samples than a single pass
 (defn frame-passes ((g (ptr gpu::device)) (cam (ptr scene::camera)) (frame display::target) (spp u32) (f u32) (depth (ptr f32))) bool
   (let ((acc (accum-new (* frame.w frame.h))) (ok true))
+    (defer (accum-free (addr acc)))
     (while (and ok (< acc.samples spp))
       (let ((done acc.samples) (k (if (< (- spp done) MAX-PASS) (- spp done) MAX-PASS)))
         (set ok (accum-add (addr acc) g cam k (pass-seed (+ (* f 1024) done)) (+ (* f spp) done) depth))))
     (when ok (accum-resolve (addr acc) frame))
-    (accum-free (addr acc))
     ok))
 
 ; out.ppm → out_0007.ppm; a name with a % in it is a printf pattern for the frame number
@@ -122,16 +122,16 @@
         (W u32 1280) (H u32 720) (hold -1) (nframes u32 0) (rscale u32 1) (spp-arg 0)
         (still false) (no-blend false) (opt 0))
     (while (!= (set-opt (addr opt) (getopt argc argv c"o:d:w:h:s:t:pn:r:b")) -1)
-      (cond ((= opt 111) (set out optarg))                          ; o
-            ((= opt 100) (set card optarg))                         ; d
-            ((= opt 119) (set W (cast u32 (atoi optarg))))          ; w
-            ((= opt 104) (set H (cast u32 (atoi optarg))))          ; h
-            ((= opt 115) (set spp-arg (atoi optarg)))               ; s
-            ((= opt 116) (set hold (atoi optarg)))                  ; t
-            ((= opt 112) (set still true))                          ; p
-            ((= opt 110) (set nframes (cast u32 (atoi optarg))))    ; n
-            ((= opt 114) (set rscale (if (> (atoi optarg) 0) (cast u32 (atoi optarg)) 1)))   ; r
-            ((= opt 98) (set no-blend true))                        ; b
+      (case opt (#\o (set out optarg))
+            (#\d (set card optarg))
+            (#\w (set W (cast u32 (atoi optarg))))
+            (#\h (set H (cast u32 (atoi optarg))))
+            (#\s (set spp-arg (atoi optarg)))
+            (#\t (set hold (atoi optarg)))
+            (#\p (set still true))
+            (#\n (set nframes (cast u32 (atoi optarg))))
+            (#\r (set rscale (if (> (atoi optarg) 0) (cast u32 (atoi optarg)) 1)))
+            (#\b (set no-blend true))
             (else
              (fprintf stderr c"usage: %s [-o file.ppm [-n frames]] [-p] [-d /dev/dri/cardN]\n       [-w W -h H] [-s spp] [-r scale] [-b] [-t seconds]\n"
                       (aref argv 0))
