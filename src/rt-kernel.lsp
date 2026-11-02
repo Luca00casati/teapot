@@ -98,7 +98,7 @@
 (defn- hash01 ((dst operand) (src operand) (key u32) (tm operand)) void
   (let ((x (as-u dst)) (tt (as-u tm)))
     (<- x (^ (as-u src) key))
-    (for (r 0 2)
+    (for (_r 0 2)
       (<- tt (>> x 16)) (<- x (^ x tt))
       (<- x (* x 0x7feb))
       (<- tt (>> x 15)) (<- x (^ x tt))
