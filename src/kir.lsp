@@ -61,7 +61,8 @@
 (def group-x operand {operand :kind okind.GROUPX :ty otype.U})
 (def group-y operand {operand :kind okind.GROUPY :ty otype.U})
 
-(defn- opnd [kind okind] [ty otype] [idx u16] operand {operand :kind kind :ty ty :idx idx})
+(private
+  (defn opnd [kind okind] [ty otype] [idx u16] operand {operand :kind kind :ty ty :idx idx}))
 (defn uni [i i32] operand (opnd okind.U otype.F (cast u16 i)))
 (defn blk [block i32] [i i32] operand (opnd okind.B otype.F (cast u16 (+ (* block 16) i))))
 (defn lane0 [v operand] operand (opnd okind.LANE0 v.ty v.idx))
@@ -91,15 +92,16 @@
 
 (def prog program)                       ; the program being built
 
-(defn- new-inst [op opcode] inst {inst :op op :target -1})
+(private
+  (defn new-inst [op opcode] inst {inst :op op :target -1})
 
-(defn- emit [i inst] u32 :noinline
-  (when (= prog.n prog.cap)
-    (set prog.cap (if (= prog.cap 0) 1024 (* prog.cap 2)))
-    (set prog.code (cast (ptr inst) (libc::realloc prog.code (* (sizeof inst) (cast u64 prog.cap))))))
-  (set prog.code[prog.n] i)
-  (+= prog.n 1)
-  (- prog.n 1))
+  (defn emit [i inst] u32 :noinline
+    (when (= prog.n prog.cap)
+      (set prog.cap (if (= prog.cap 0) 1024 (* prog.cap 2)))
+      (set prog.code (cast (ptr inst) (libc::realloc prog.code (* (sizeof inst) (cast u64 prog.cap))))))
+    (set prog.code[prog.n] i)
+    (+= prog.n 1)
+    (- prog.n 1)))
 
 (defn vreg [] operand
   (+= prog.nvec 1)
@@ -110,15 +112,16 @@
 ; one pending instruction: what an operator returns, emitted by <-
 (struct expr [op opcode] [a operand] [b operand] [sat bool])
 
-(defn- ex [op opcode] [a operand] [b operand] expr {expr :op op :a a :b b})
-(defn- mov [a operand] expr (ex opcode.MOV a none))
+(private
+  (defn ex [op opcode] [a operand] [b operand] expr {expr :op op :a a :b b})
+  (defn mov [a operand] expr (ex opcode.MOV a none))
 
-; the binary operators, with an operand or a number (f32: a float immediate,
-; an integer: a uint one) on the right
-(defmacro- def-binop! (op code)
-  `(do (defop ,op [a operand] [b operand] expr (ex ,code a b))
-       (defop ,op [a operand] [b f32] expr (ex ,code a (fimm b)))
-       (defop ,op [a operand] [b u32] expr (ex ,code a (uimm b)))))
+  ; the binary operators, with an operand or a number (f32: a float immediate,
+  ; an integer: a uint one) on the right
+  (defmacro def-binop! (op code)
+    `(do (defop ,op [a operand] [b operand] expr (ex ,code a b))
+         (defop ,op [a operand] [b f32] expr (ex ,code a (fimm b)))
+         (defop ,op [a operand] [b u32] expr (ex ,code a (uimm b))))))
 (def-binop! + opcode.ADD)
 (def-binop! * opcode.MUL)
 (def-binop! & opcode.AND)
@@ -147,10 +150,11 @@
 (def f0 flag {flag :n 0})
 (def f1 flag {flag :n 1})
 
-(defmacro- def-cmpop! (op c)
-  `(do (defop ,op [a operand] [b operand] cmp {cmp :cond ,c :a a :b b})
-       (defop ,op [a operand] [b f32] cmp {cmp :cond ,c :a a :b (fimm b)})
-       (defop ,op [a operand] [b u32] cmp {cmp :cond ,c :a a :b (uimm b)})))
+(private
+  (defmacro def-cmpop! (op c)
+    `(do (defop ,op [a operand] [b operand] cmp {cmp :cond ,c :a a :b b})
+         (defop ,op [a operand] [b f32] cmp {cmp :cond ,c :a a :b (fimm b)})
+         (defop ,op [a operand] [b u32] cmp {cmp :cond ,c :a a :b (uimm b)}))))
 (def-cmpop! = cmpc.EQ)
 (def-cmpop! != cmpc.NE)
 (def-cmpop! > cmpc.GT)
@@ -162,29 +166,30 @@
 ; (the emitters are :noinline: the kernel is built once, at startup, and
 ; inlining them into every (<- ...) only makes the builder huge to compile)
 
-(defn- emit-op [d operand] [e expr] [pred u8] void :noinline
-  (let [i (new-inst e.op)]
-    (set i.d d)
-    (set i.a e.a)
-    (set i.b e.b)
-    (set i.sat e.sat)
-    (set i.pred pred)
-    (emit i)))
+(private
+  (defn emit-op [d operand] [e expr] [pred u8] void :noinline
+    (let [i (new-inst e.op)]
+      (set i.d d)
+      (set i.a e.a)
+      (set i.b e.b)
+      (set i.sat e.sat)
+      (set i.pred pred)
+      (emit i)))
 
-(defn- emit-mov [d operand] [a operand] [pred u8] void :noinline
-  (let [i (new-inst opcode.MOV)]
-    (set i.d d)
-    (set i.a a)
-    (set i.pred pred)
-    (emit i)))
+  (defn emit-mov [d operand] [a operand] [pred u8] void :noinline
+    (let [i (new-inst opcode.MOV)]
+      (set i.d d)
+      (set i.a a)
+      (set i.pred pred)
+      (emit i)))
 
-(defn- emit-cmp [fl flag] [c cmp] void :noinline
-  (let [i (new-inst opcode.CMP)]
-    (set i.cond c.cond)
-    (set i.flag fl.n)
-    (set i.a c.a)
-    (set i.b c.b)
-    (emit i)))
+  (defn emit-cmp [fl flag] [c cmp] void :noinline
+    (let [i (new-inst opcode.CMP)]
+      (set i.cond c.cond)
+      (set i.flag fl.n)
+      (set i.a c.a)
+      (set i.b c.b)
+      (emit i))))
 
 ; (<- dst e): one instruction. dst is a register, (at reg flag) for a write
 ; predicated on the flag, or a flag when e is a compare. e is an operator's
@@ -207,10 +212,11 @@
 ; a jump target; it may be used before it is bound
 (struct label [pos i32] [fix (ptr u32)] [nfix u32])
 
-(defn- make-label [pos i32] (ptr label)       ; (kept for the whole build: there are few)
-  (let [l (cast (ptr label) (libc::calloc 1 (sizeof label)))]
-    (set l.pos pos)
-    l))
+(private
+  (defn make-label [pos i32] (ptr label)       ; (kept for the whole build: there are few)
+    (let [l (cast (ptr label) (libc::calloc 1 (sizeof label)))]
+      (set l.pos pos)
+      l)))
 (defn new-label [] (ptr label) (make-label -1))
 (defn here [] (ptr label) (make-label (cast i32 prog.n)))   ; bound to the next instruction
 
@@ -219,15 +225,16 @@
   (for [i u32 0 l.nfix] (set (. prog.code[l.fix[i]] target) l.pos))
   (set l.nfix 0))
 
-(defn- kjump [op opcode] [fl flag] [l (ptr label)] void :noinline
-  (let [i (new-inst op)]
-    (set i.flag fl.n)
-    (set i.target l.pos)
-    (let [at (emit i)]
-      (when (< l.pos 0)
-        (set l.fix (cast (ptr u32) (libc::realloc l.fix (* 4 (cast u64 (+ l.nfix 1))))))
-        (set l.fix[l.nfix] at)
-        (+= l.nfix 1)))))
+(private
+  (defn kjump [op opcode] [fl flag] [l (ptr label)] void :noinline
+    (let [i (new-inst op)]
+      (set i.flag fl.n)
+      (set i.target l.pos)
+      (let [at (emit i)]
+        (when (< l.pos 0)
+          (set l.fix (cast (ptr u32) (libc::realloc l.fix (* 4 (cast u64 (+ l.nfix 1))))))
+          (set l.fix[l.nfix] at)
+          (+= l.nfix 1))))))
 
 (defn jmp [l (ptr label)] void (kjump opcode.JMP f0 l))
 (defn jmp-if [fl flag] [l (ptr label)] void (kjump opcode.JIF fl l))       ; scalar flag set

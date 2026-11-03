@@ -52,13 +52,15 @@
   [saved drm_mode_crtc]                  ; the CRTC as we found it
   [tgt target])
 
-(defn- card-target [d (ptr drm)] [k u32] target (let [t d.tgt] (set t.base d.map[k]) t))
+(private
+  (defn card-target [d (ptr drm)] [k u32] target (let [t d.tgt] (set t.base d.map[k]) t)))
 (defn front [d (ptr drm)] target (card-target d d.front))
 (defn back [d (ptr drm)] target (card-target d (- 1 d.front)))
 
-(defn- dirty-buf [d (ptr drm)] [k u32] void
-  (let [c {drm_mode_fb_dirty_cmd :fb_id d.fb[k]}]
-    (ioctl d.fd DRM_IOCTL_MODE_DIRTYFB (addr c))))
+(private
+  (defn dirty-buf [d (ptr drm)] [k u32] void
+    (let [c {drm_mode_fb_dirty_cmd :fb_id d.fb[k]}]
+      (ioctl d.fd DRM_IOCTL_MODE_DIRTYFB (addr c)))))
 ; the front buffer changed (needed by virtio/udl style drivers)
 (defn dirty [d (ptr drm)] void (dirty-buf d d.front))
 

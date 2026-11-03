@@ -34,115 +34,117 @@
 (const G-SC1 17) (const G-VEC 18) (const G-VEC-END 122) (const G-ST 122) (const G-HDR2 125) (const G-EOT 127)
 
 ; one EU operand; (gnull ty) is the null register
-(struct- gop [file u32] [ty u32] [nr u32] [sub u32] [vs u32] [w u32] [hs u32] [neg u32] [imm u32])
+(private
+  (struct gop [file u32] [ty u32] [nr u32] [sub u32] [vs u32] [w u32] [hs u32] [neg u32] [imm u32])
 
-(defn- gnull [ty u32] gop {gop :file RF-ARF :ty ty :w 1})
-(defn- gvec [r u32] [ty u32] gop {gop :file RF-GRF :ty ty :nr r :vs 8 :w 8 :hs 1})   ; SIMD16 in r:r+1
-(defn- gsc [r u32] [c u32] [ty u32] gop {gop :file RF-GRF :ty ty :nr r :sub (* c 4) :w 1}) ; dword c of r
-(defn- gimm [v u32] [ty u32] gop {gop :file RF-IMM :ty ty :imm v})
+  (defn gnull [ty u32] gop {gop :file RF-ARF :ty ty :w 1})
+  (defn gvec [r u32] [ty u32] gop {gop :file RF-GRF :ty ty :nr r :vs 8 :w 8 :hs 1})   ; SIMD16 in r:r+1
+  (defn gsc [r u32] [c u32] [ty u32] gop {gop :file RF-GRF :ty ty :nr r :sub (* c 4) :w 1}) ; dword c of r
+  (defn gimm [v u32] [ty u32] gop {gop :file RF-IMM :ty ty :imm v})
 
-; bits lo..hi of the 128-bit instruction in[0..3] = v
-(defn- setb [in (ptr u32)] [hi u32] [lo u32] [v u32] void
-  (let [x v]
-    (for [b lo (+ hi 1)]
-      (let [w (/ b 32)] [s (% b 32)]
-        (set in[w] (| (& in[w] (~ (<< 1 s))) (<< (& x 1) s)))
-        (set x (>> x 1))))))
+  ; bits lo..hi of the 128-bit instruction in[0..3] = v
+  (defn setb [in (ptr u32)] [hi u32] [lo u32] [v u32] void
+    (let [x v]
+      (for [b lo (+ hi 1)]
+        (let [w (/ b 32)] [s (% b 32)]
+          (set in[w] (| (& in[w] (~ (<< 1 s))) (<< (& x 1) s)))
+          (set x (>> x 1))))))
 
-(defn- enc-vs [v u32] u32 (cond ((= v 0) 0) ((= v 1) 1) ((= v 2) 2) ((= v 4) 3) ((= v 8) 4) ((= v 16) 5) (else 6)))
-(defn- enc-w [w u32] u32 (cond ((= w 1) 0) ((= w 2) 1) ((= w 4) 2) ((= w 8) 3) (else 4)))
-(defn- enc-hs [h u32] u32 (cond ((= h 0) 0) ((= h 1) 1) ((= h 2) 2) (else 3)))
-(defn- enc-es [e u32] u32 (cond ((= e 1) 0) ((= e 2) 1) ((= e 4) 2) ((= e 8) 3) (else 4)))
+  (defn enc-vs [v u32] u32 (cond ((= v 0) 0) ((= v 1) 1) ((= v 2) 2) ((= v 4) 3) ((= v 8) 4) ((= v 16) 5) (else 6)))
+  (defn enc-w [w u32] u32 (cond ((= w 1) 0) ((= w 2) 1) ((= w 4) 2) ((= w 8) 3) (else 4)))
+  (defn enc-hs [h u32] u32 (cond ((= h 0) 0) ((= h 1) 1) ((= h 2) 2) (else 3)))
+  (defn enc-es [e u32] u32 (cond ((= e 1) 0) ((= e 2) 1) ((= e 4) 2) ((= e 8) 3) (else 4)))
 
-; modifiers of one EU instruction
-(struct- mods [pred u32] [pinv u32] [flag u32] [cmod u32] [sat u32] [es u32] [nomask u32])
-(def- MODS mods {mods :es 16})
-(def- SCALAR-MODS mods {mods :es 1 :nomask 1})
-(def- HEADER-MODS mods {mods :es 8 :nomask 1})
+  ; modifiers of one EU instruction
+  (struct mods [pred u32] [pinv u32] [flag u32] [cmod u32] [sat u32] [es u32] [nomask u32])
+  (def MODS mods {mods :es 16})
+  (def SCALAR-MODS mods {mods :es 1 :nomask 1})
+  (def HEADER-MODS mods {mods :es 8 :nomask 1})
 
-; the machine code: 4 dwords per instruction
-(struct- encoder [code (ptr u32)] [n u32] [cap u32])
+  ; the machine code: 4 dwords per instruction
+  (struct encoder [code (ptr u32)] [n u32] [cap u32]))
 (def enc encoder)
 
-(defn- eu-emit [opc u32] [m mods] [d gop] [s0 gop] [s1 gop] [nsrc u32] [func u32] void
-  (when (= enc.n enc.cap)
-    (set enc.cap (if (= enc.cap 0) 4096 (* enc.cap 2)))
-    (set enc.code (cast (ptr u32) (realloc enc.code (* 16 (cast u64 enc.cap))))))
-  (let [i (+ enc.code (* enc.n 4))]
-    (memset i 0 16)
-    (setb i 6 0 opc)
-    (setb i 9 9 m.nomask)
-    (setb i 19 16 m.pred)
-    (setb i 20 20 m.pinv)
-    (setb i 23 21 (enc-es m.es))
-    (setb i 27 24 (if (!= func 0) func m.cmod))
-    (setb i 31 31 m.sat)
-    (setb i 90 90 (>> m.flag 1))        ; f0 / f1
-    (setb i 89 89 (& m.flag 1))         ; .0 / .1
-    ; destination (align1, direct)
-    (setb i 33 32 d.file)
-    (setb i 36 34 d.ty)
-    (setb i 52 48 d.sub)
-    (setb i 60 53 d.nr)
-    (setb i 62 61 (enc-hs (if (!= d.hs 0) d.hs 1)))
-    ; src0
-    (setb i 38 37 s0.file)
-    (setb i 41 39 s0.ty)
-    (if (= s0.file RF-IMM)
-        (do (set i[3] s0.imm)
-            (setb i 43 42 RF-ARF)
-            (setb i 46 44 s0.ty))
-        (do (setb i 68 64 s0.sub)
-            (setb i 76 69 s0.nr)
-            (setb i 78 78 s0.neg)
-            (setb i 81 80 (enc-hs s0.hs))
-            (setb i 84 82 (enc-w s0.w))
-            (setb i 88 85 (enc-vs s0.vs))))
-    (when (= nsrc 2)
-      (setb i 43 42 s1.file)
-      (setb i 46 44 s1.ty)
-      (if (= s1.file RF-IMM)
-          (set i[3] s1.imm)
-          (do (setb i 100 96 s1.sub)
-              (setb i 108 101 s1.nr)
-              (setb i 110 110 s1.neg)
-              (setb i 113 112 (enc-hs s1.hs))
-              (setb i 116 114 (enc-w s1.w))
-              (setb i 120 117 (enc-vs s1.vs)))))
-    (+= enc.n 1)))
+(private
+  (defn eu-emit [opc u32] [m mods] [d gop] [s0 gop] [s1 gop] [nsrc u32] [func u32] void
+    (when (= enc.n enc.cap)
+      (set enc.cap (if (= enc.cap 0) 4096 (* enc.cap 2)))
+      (set enc.code (cast (ptr u32) (realloc enc.code (* 16 (cast u64 enc.cap))))))
+    (let [i (+ enc.code (* enc.n 4))]
+      (memset i 0 16)
+      (setb i 6 0 opc)
+      (setb i 9 9 m.nomask)
+      (setb i 19 16 m.pred)
+      (setb i 20 20 m.pinv)
+      (setb i 23 21 (enc-es m.es))
+      (setb i 27 24 (if (!= func 0) func m.cmod))
+      (setb i 31 31 m.sat)
+      (setb i 90 90 (>> m.flag 1))        ; f0 / f1
+      (setb i 89 89 (& m.flag 1))         ; .0 / .1
+      ; destination (align1, direct)
+      (setb i 33 32 d.file)
+      (setb i 36 34 d.ty)
+      (setb i 52 48 d.sub)
+      (setb i 60 53 d.nr)
+      (setb i 62 61 (enc-hs (if (!= d.hs 0) d.hs 1)))
+      ; src0
+      (setb i 38 37 s0.file)
+      (setb i 41 39 s0.ty)
+      (if (= s0.file RF-IMM)
+          (do (set i[3] s0.imm)
+              (setb i 43 42 RF-ARF)
+              (setb i 46 44 s0.ty))
+          (do (setb i 68 64 s0.sub)
+              (setb i 76 69 s0.nr)
+              (setb i 78 78 s0.neg)
+              (setb i 81 80 (enc-hs s0.hs))
+              (setb i 84 82 (enc-w s0.w))
+              (setb i 88 85 (enc-vs s0.vs))))
+      (when (= nsrc 2)
+        (setb i 43 42 s1.file)
+        (setb i 46 44 s1.ty)
+        (if (= s1.file RF-IMM)
+            (set i[3] s1.imm)
+            (do (setb i 100 96 s1.sub)
+                (setb i 108 101 s1.nr)
+                (setb i 110 110 s1.neg)
+                (setb i 113 112 (enc-hs s1.hs))
+                (setb i 116 114 (enc-w s1.w))
+                (setb i 120 117 (enc-vs s1.vs)))))
+      (+= enc.n 1)))
 
-(defn- op1 [opc u32] [m mods] [d gop] [s gop] void (eu-emit opc m d s (gnull TY-UD) 1 0))
-(defn- op2 [opc u32] [m mods] [d gop] [a gop] [b gop] void (eu-emit opc m d a b 2 0))
-(defn- eu-mov [m mods] [d gop] [s gop] void (op1 EU-MOV m d s))
-(defn- eu-send [sfid u32] [dst gop] [src u32] [desc u32] void
-  (let [m MODS] (set m.nomask 1) (eu-emit EU-SEND m dst (gvec src TY-UD) (gimm desc TY-UD) 2 sfid)))
+  (defn op1 [opc u32] [m mods] [d gop] [s gop] void (eu-emit opc m d s (gnull TY-UD) 1 0))
+  (defn op2 [opc u32] [m mods] [d gop] [a gop] [b gop] void (eu-emit opc m d a b 2 0))
+  (defn eu-mov [m mods] [d gop] [s gop] void (op1 EU-MOV m d s))
+  (defn eu-send [sfid u32] [dst gop] [src u32] [desc u32] void
+    (let [m MODS] (set m.nomask 1) (eu-emit EU-SEND m dst (gvec src TY-UD) (gimm desc TY-UD) 2 sfid)))
 
-(defn- gen-op [o operand] gop
-  (let [ty u32 (if (= o.ty kir::otype.F) TY-F TY-UD)] [i (cast u32 o.idx)] [g (gnull ty)]
-    (case o.kind
-      (okind.V (set g (gvec (+ G-VEC (* 2 i)) ty)))
-      (okind.S (set g (gsc (if (< i 8) G-SC0 G-SC1) (% i 8) ty)))
-      (okind.U (set g (gsc (+ G-UNI (/ i 8)) (% i 8) ty)))
-      (okind.B (set g (gsc (+ G-BLK (/ i 8)) (% i 8) ty)))
-      (okind.LANE0 (set g (gsc (+ G-VEC (* 2 i)) 0 ty)))
-      (okind.LANEX (set g (gvec G-LX ty)))
-      (okind.LANEY (set g (gvec G-LY ty)))
-      (okind.GROUPX (set g (gsc 0 1 ty)))
-      (okind.GROUPY (set g (gsc 0 6 ty)))
-      (okind.IMM (return (gimm o.imm ty)))
-      (else (return g)))
-    (set g.neg (cast u32 o.neg))
-    g))
+  (defn gen-op [o operand] gop
+    (let [ty u32 (if (= o.ty kir::otype.F) TY-F TY-UD)] [i (cast u32 o.idx)] [g (gnull ty)]
+      (case o.kind
+        (okind.V (set g (gvec (+ G-VEC (* 2 i)) ty)))
+        (okind.S (set g (gsc (if (< i 8) G-SC0 G-SC1) (% i 8) ty)))
+        (okind.U (set g (gsc (+ G-UNI (/ i 8)) (% i 8) ty)))
+        (okind.B (set g (gsc (+ G-BLK (/ i 8)) (% i 8) ty)))
+        (okind.LANE0 (set g (gsc (+ G-VEC (* 2 i)) 0 ty)))
+        (okind.LANEX (set g (gvec G-LX ty)))
+        (okind.LANEY (set g (gvec G-LY ty)))
+        (okind.GROUPX (set g (gsc 0 1 ty)))
+        (okind.GROUPY (set g (gsc 0 6 ty)))
+        (okind.IMM (return (gimm o.imm ty)))
+        (else (return g)))
+      (set g.neg (cast u32 o.neg))
+      g))
 
-(defn- alu-op [op opcode] u32
-  (case op
-    (opcode.MOV EU-MOV) (opcode.ADD EU-ADD) (opcode.MUL EU-MUL) (opcode.AND EU-AND) (opcode.OR EU-OR)
-    (opcode.XOR EU-XOR) (opcode.SHL EU-SHL) (opcode.SHR EU-SHR) (opcode.FLOOR EU-RNDD) (else EU-FRC)))
-(defn- math-fn [op opcode] u32
-  (case op (opcode.INV MF-INV) (opcode.SQRT MF-SQRT) (opcode.RSQ MF-RSQ) (opcode.EXP2 MF-EXP) (else MF-POW)))
-(defn- cond-mod [c cmpc] u32
-  (case c (cmpc.EQ CM-Z) (cmpc.NE CM-NZ) (cmpc.GT CM-G) (cmpc.GE CM-GE) (cmpc.LT CM-L) (else CM-LE)))
-(defn- is-jump [op opcode] bool (and (>= op opcode.JMP) (<= op opcode.JALL)))
+  (defn alu-op [op opcode] u32
+    (case op
+      (opcode.MOV EU-MOV) (opcode.ADD EU-ADD) (opcode.MUL EU-MUL) (opcode.AND EU-AND) (opcode.OR EU-OR)
+      (opcode.XOR EU-XOR) (opcode.SHL EU-SHL) (opcode.SHR EU-SHR) (opcode.FLOOR EU-RNDD) (else EU-FRC)))
+  (defn math-fn [op opcode] u32
+    (case op (opcode.INV MF-INV) (opcode.SQRT MF-SQRT) (opcode.RSQ MF-RSQ) (opcode.EXP2 MF-EXP) (else MF-POW)))
+  (defn cond-mod [c cmpc] u32
+    (case c (cmpc.EQ CM-Z) (cmpc.NE CM-NZ) (cmpc.GT CM-G) (cmpc.GE CM-GE) (cmpc.LT CM-L) (else CM-LE)))
+  (defn is-jump [op opcode] bool (and (>= op opcode.JMP) (<= op opcode.JALL))))
 
 ;; ------------------------------------------------------- IR → EU code ---
 
@@ -241,103 +243,105 @@
 
 ;; ------------------------------------------------------ command stream ---
 
-(struct- gen75 [threads u32] [drv (ptr driver)] [batch buffer] [batch-len u32])
-(defn- state-of [h (ptr hardware)] (ptr gen75) (cast (ptr gen75) h.state))
+(private
+  (struct gen75 [threads u32] [drv (ptr driver)] [batch buffer] [batch-len u32])
+  (defn state-of [h (ptr hardware)] (ptr gen75) (cast (ptr gen75) h.state)))
 
 ; batch layout: commands at 0, state from 4096
 (const OFF-CURBE 4096) (const OFF-IDD (+ 4096 512)) (const OFF-BT (+ 4096 1024))
 (const OFF-SS (+ 4096 1088)) (const OFF-KERNEL 8192)
 
 ; the command stream being written: dwords, and where the batch's own address goes
-(struct- cmdbuf [mem (ptr u32)] [n u32] [self (array u32 3)] [nself u32])
-(defn- put [cb (ptr cmdbuf)] [x u32] void
-  (set cb.mem[cb.n] x)
-  (+= cb.n 1))
-(defmacro- out! (cb &rest xs) `(do ,@(map (lambda (x) `(put ,cb ,x)) xs)))
-(defn- reloc-self [cb (ptr cmdbuf)] void   ; relocated to the batch itself in setup
-  (set cb.self[cb.nself] cb.n)
-  (+= cb.nself 1)
-  (put cb 1))
+(private
+  (struct cmdbuf [mem (ptr u32)] [n u32] [self (array u32 3)] [nself u32])
+  (defn put [cb (ptr cmdbuf)] [x u32] void
+    (set cb.mem[cb.n] x)
+    (+= cb.n 1))
+  (defmacro out! (cb &rest xs) `(do ,@(map (lambda (x) `(put ,cb ,x)) xs)))
+  (defn reloc-self [cb (ptr cmdbuf)] void   ; relocated to the batch itself in setup
+    (set cb.self[cb.nself] cb.n)
+    (+= cb.nself 1)
+    (put cb 1))
 
-(defn- hw-compile [h (ptr hardware)] [p (ptr program)] bool (compile p))
+  (defn hw-compile [h (ptr hardware)] [p (ptr program)] bool (compile p))
 
-(defn- setup [h (ptr hardware)] [drv (ptr driver)] [tiles-x u32] [tiles-y u32] [bufs (ptr buffer)] bool
-  (let [g (state-of h)] [batch (addr g.batch)]
-    (unless (drv.alloc drv 65536 batch) (return false))
-    (drv.sync drv batch true)
-    (memset batch.map 0 batch.size)
-    (let [mem (cast (ptr u32) batch.map)]
-      (when (> (+ OFF-KERNEL (* 16 (cast u64 enc.n))) batch.size)
-        (fprintf stderr c"gen75: kernel too large\n")
-        (return false))
-      (memcpy (+ batch.map OFF-KERNEL) enc.code (* 16 (cast u64 enc.n)))
+  (defn setup [h (ptr hardware)] [drv (ptr driver)] [tiles-x u32] [tiles-y u32] [bufs (ptr buffer)] bool
+    (let [g (state-of h)] [batch (addr g.batch)]
+      (unless (drv.alloc drv 65536 batch) (return false))
+      (drv.sync drv batch true)
+      (memset batch.map 0 batch.size)
+      (let [mem (cast (ptr u32) batch.map)]
+        (when (> (+ OFF-KERNEL (* 16 (cast u64 enc.n))) batch.size)
+          (fprintf stderr c"gen75: kernel too large\n")
+          (return false))
+        (memcpy (+ batch.map OFF-KERNEL) enc.code (* 16 (cast u64 enc.n)))
 
-      ; CURBE: 4 GRFs of uniforms (written per run), then the lane positions
-      (for [i u32 0 16]
-        (set mem[(+ (/ OFF-CURBE 4) 32 i)] (bitcast u32 (cast f32 (% i 4))))
-        (set mem[(+ (/ OFF-CURBE 4) 48 i)] (bitcast u32 (cast f32 (/ i 4)))))
+        ; CURBE: 4 GRFs of uniforms (written per run), then the lane positions
+        (for [i u32 0 16]
+          (set mem[(+ (/ OFF-CURBE 4) 32 i)] (bitcast u32 (cast f32 (% i 4))))
+          (set mem[(+ (/ OFF-CURBE 4) 48 i)] (bitcast u32 (cast f32 (/ i 4)))))
 
-      ; interface descriptor
-      (let [idd (+ mem (/ OFF-IDD 4))]
-        (set idd[0] OFF-KERNEL)
-        (set idd[1] (<< 1 18))     ; single program flow, IEEE float
-        (set idd[3] OFF-BT)        ; binding table pointer (32-byte aligned)
-        (set idd[4] (<< 8 16))     ; CURBE read length 8 GRFs
-        (set idd[5] 1))            ; 1 thread per group
+        ; interface descriptor
+        (let [idd (+ mem (/ OFF-IDD 4))]
+          (set idd[0] OFF-KERNEL)
+          (set idd[1] (<< 1 18))     ; single program flow, IEEE float
+          (set idd[3] OFF-BT)        ; binding table pointer (32-byte aligned)
+          (set idd[4] (<< 8 16))     ; CURBE read length 8 GRFs
+          (set idd[5] 1))            ; 1 thread per group
 
-      ; binding table: 0 scene (raw buffer), 1 and 2 linear 2D images of dwords
-      (let [w (* tiles-x 4)] [hh (* tiles-y 4)]
-        (for [i u32 0 3]
-          (let [ss-off (+ OFF-SS (* 64 i))] [ss (+ mem (/ ss-off 4))]
-            (set mem[(+ (/ OFF-BT 4) i)] ss-off)
-            (if (= i 0)
-                (let [sz (- (cast u32 (. bufs[0] size)) 1)]
-                  (set ss[0] (| (<< 4 29) (<< 0x1FF 18)))           ; SURFTYPE_BUFFER, RAW
-                  (set ss[2] (| (<< (& (>> sz 7) 0x3fff) 16) (& sz 0x7f)))
-                  (set ss[3] (<< (& (>> sz 21) 0x3ff) 21)))
-                (do
-                  (set ss[0] (| (<< 1 29) (<< 0x0C0 18) (<< 1 8)))  ; SURFTYPE_2D, B8G8R8A8_UNORM, linear
-                  (set ss[2] (| (<< (- hh 1) 16) (- w 1)))
-                  (set ss[3] (- (* w 4) 1))))
-            (set ss[7] (| (<< 4 25) (<< 5 22) (<< 6 19) (<< 7 16)))
-            (drv.reloc drv batch (+ ss-off 4) (+ bufs i) 0 (!= i 0)))))
+        ; binding table: 0 scene (raw buffer), 1 and 2 linear 2D images of dwords
+        (let [w (* tiles-x 4)] [hh (* tiles-y 4)]
+          (for [i u32 0 3]
+            (let [ss-off (+ OFF-SS (* 64 i))] [ss (+ mem (/ ss-off 4))]
+              (set mem[(+ (/ OFF-BT 4) i)] ss-off)
+              (if (= i 0)
+                  (let [sz (- (cast u32 (. bufs[0] size)) 1)]
+                    (set ss[0] (| (<< 4 29) (<< 0x1FF 18)))           ; SURFTYPE_BUFFER, RAW
+                    (set ss[2] (| (<< (& (>> sz 7) 0x3fff) 16) (& sz 0x7f)))
+                    (set ss[3] (<< (& (>> sz 21) 0x3ff) 21)))
+                  (do
+                    (set ss[0] (| (<< 1 29) (<< 0x0C0 18) (<< 1 8)))  ; SURFTYPE_2D, B8G8R8A8_UNORM, linear
+                    (set ss[2] (| (<< (- hh 1) 16) (- w 1)))
+                    (set ss[3] (- (* w 4) 1))))
+              (set ss[7] (| (<< 4 25) (<< 5 22) (<< 6 19) (<< 7 16)))
+              (drv.reloc drv batch (+ ss-off 4) (+ bufs i) 0 (!= i 0)))))
 
-      (let [cb {cmdbuf :mem mem}] [k (addr cb)]
-        (out! k (| (<< 3 29) (<< 1 27) (<< 1 24) (<< 4 16) 2))    ; PIPELINE_SELECT GPGPU
-        (out! k (| (<< 3 29) (<< 1 24) (<< 1 16) 8))              ; STATE_BASE_ADDRESS
-        (out! k 0)
-        (reloc-self k)                                           ; surface
-        (reloc-self k)                                           ; dynamic
-        (out! k 0)                                                ; indirect
-        (reloc-self k)                                           ; instruction
-        (out! k 0 1 0 1)
-        (out! k (| (<< 3 29) (<< 2 27) 6))                        ; MEDIA_VFE_STATE
-        (out! k 0 (| (<< (- g.threads 1) 16) (<< 1 2)) 0)
-        (out! k 8)                                                ; CURBE: 8 x 256 bits
-        (out! k 0 0 0)
-        (out! k (| (<< 3 29) (<< 2 27) (<< 1 16) 2))              ; MEDIA_CURBE_LOAD
-        (out! k 0 256 OFF-CURBE)
-        (out! k (| (<< 3 29) (<< 2 27) (<< 2 16) 2))              ; MEDIA_INTERFACE_DESCRIPTOR_LOAD
-        (out! k 0 32 OFF-IDD)
-        (out! k (| (<< 3 29) (<< 2 27) (<< 1 24) (<< 5 16) 9))    ; GPGPU_WALKER
-        (out! k 0)
-        (out! k (<< 1 30))                                        ; SIMD16, 1x1x1 threads
-        (out! k 0 tiles-x)                                        ; thread group X range
-        (out! k 0 tiles-y)                                        ; thread group Y range
-        (out! k 0 1)
-        (out! k 0xffff 0xffffffff)
-        (out! k (<< 0x0A 23))                                     ; MI_BATCH_BUFFER_END
-        (out! k 0)
-        (for [i u32 0 cb.nself] (drv.reloc drv batch (* cb.self[i] 4) batch 1 false))
-        (set g.batch-len (* cb.n 4))))
-    (set g.drv drv)
-    true))
+        (let [cb {cmdbuf :mem mem}] [k (addr cb)]
+          (out! k (| (<< 3 29) (<< 1 27) (<< 1 24) (<< 4 16) 2))    ; PIPELINE_SELECT GPGPU
+          (out! k (| (<< 3 29) (<< 1 24) (<< 1 16) 8))              ; STATE_BASE_ADDRESS
+          (out! k 0)
+          (reloc-self k)                                           ; surface
+          (reloc-self k)                                           ; dynamic
+          (out! k 0)                                                ; indirect
+          (reloc-self k)                                           ; instruction
+          (out! k 0 1 0 1)
+          (out! k (| (<< 3 29) (<< 2 27) 6))                        ; MEDIA_VFE_STATE
+          (out! k 0 (| (<< (- g.threads 1) 16) (<< 1 2)) 0)
+          (out! k 8)                                                ; CURBE: 8 x 256 bits
+          (out! k 0 0 0)
+          (out! k (| (<< 3 29) (<< 2 27) (<< 1 16) 2))              ; MEDIA_CURBE_LOAD
+          (out! k 0 256 OFF-CURBE)
+          (out! k (| (<< 3 29) (<< 2 27) (<< 2 16) 2))              ; MEDIA_INTERFACE_DESCRIPTOR_LOAD
+          (out! k 0 32 OFF-IDD)
+          (out! k (| (<< 3 29) (<< 2 27) (<< 1 24) (<< 5 16) 9))    ; GPGPU_WALKER
+          (out! k 0)
+          (out! k (<< 1 30))                                        ; SIMD16, 1x1x1 threads
+          (out! k 0 tiles-x)                                        ; thread group X range
+          (out! k 0 tiles-y)                                        ; thread group Y range
+          (out! k 0 1)
+          (out! k 0xffff 0xffffffff)
+          (out! k (<< 0x0A 23))                                     ; MI_BATCH_BUFFER_END
+          (out! k 0)
+          (for [i u32 0 cb.nself] (drv.reloc drv batch (* cb.self[i] 4) batch 1 false))
+          (set g.batch-len (* cb.n 4))))
+      (set g.drv drv)
+      true))
 
-(defn- run [h (ptr hardware)] [uniforms (ptr u32)] bool
-  (let [g (state-of h)] [batch (addr g.batch)]
-    (g.drv.sync g.drv batch true)        ; the CURBE lives in the batch: waits for the GPU
-    (memcpy (+ batch.map OFF-CURBE) uniforms (* 32 4))
-    (g.drv.exec g.drv batch g.batch-len)))
+  (defn run [h (ptr hardware)] [uniforms (ptr u32)] bool
+    (let [g (state-of h)] [batch (addr g.batch)]
+      (g.drv.sync g.drv batch true)        ; the CURBE lives in the batch: waits for the GPU
+      (memcpy (+ batch.map OFF-CURBE) uniforms (* 32 4))
+      (g.drv.exec g.drv batch g.batch-len))))
 
 ; does this layer drive the chip? A description goes to desc[64]
 (defn probe [id u32] [desc (ptr i8)] (ptr hardware)

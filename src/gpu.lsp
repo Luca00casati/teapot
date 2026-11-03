@@ -32,10 +32,11 @@
   [layout u64] [nnodes u32])
 
 ; the hardware layers, tried in order on the chip a driver finds
-(def- accepted (ptr hardware) null)
-(defn- accept-chip [id u32] [desc (ptr void)] bool
-  (set accepted (gen75::probe id (cast (ptr i8) desc)))
-  (!= accepted null))
+(private
+  (def accepted (ptr hardware) null)
+  (defn accept-chip [id u32] [desc (ptr void)] bool
+    (set accepted (gen75::probe id (cast (ptr i8) desc)))
+    (!= accepted null)))
 
 ; null if no supported GPU is found
 (defn open [s (ptr scene::model)] [w u32] [h u32] (ptr device)
@@ -64,8 +65,9 @@
       (set g.nnodes s.nnode)
       g)))
 
-(defn- put-f [u (ptr u32)] [i i32] [v f32] void (set u[i] (bitcast u32 v)))
-(defn- put-v3 [u (ptr u32)] [i i32] [v v3] void (put-f u i v.x) (put-f u (+ i 1) v.y) (put-f u (+ i 2) v.z))
+(private
+  (defn put-f [u (ptr u32)] [i i32] [v f32] void (set u[i] (bitcast u32 v)))
+  (defn put-v3 [u (ptr u32)] [i i32] [v v3] void (put-f u i v.x) (put-f u (+ i 1) v.y) (put-f u (+ i 2) v.z)))
 
 ; Callers keep passes short (a few samples) so a batch stays far below the
 ; kernel's hang detection.
