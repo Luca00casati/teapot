@@ -6,6 +6,7 @@
 (import "math")
 (import "prelude")
 (import "vec")
+(import "std/sort")
 (using libc prelude vec)
 
 ;; Classic 10 patch / 127 control point form; rim, body, lid and bottom are
@@ -189,14 +190,6 @@
 
   (defn area [e v3] f32 (+ (* e.x e.y) (* e.y e.z) (* e.z e.x)))
 
-  ; the median split's comparator (qsort has no context argument)
-  (def sort-scene (ptr model) null)
-  (def sort-axis i32 0)
-  (defn cmp-tri [pa (ptr void)] [pb (ptr void)] i32
-    (let [ca (axis (centroid (addr sort-scene.tris[(deref (cast (ptr u32) pa))])) sort-axis)]
-         [cb (axis (centroid (addr sort-scene.tris[(deref (cast (ptr u32) pb))])) sort-axis)]
-      (- (cast i32 (> ca cb)) (cast i32 (< ca cb)))))
-
   (defn build-node [s (ptr model)] [ni u32] [first u32] [count u32] void
     (let [big (vec3 1e30 1e30 1e30)] [bmin big] [bmax (- big)] [cmin bmin] [cmax bmax]
       (for [k first (+ first count)]
@@ -254,9 +247,10 @@
               (set mid (cast u32 (- i (cast i64 first)))))
             ; all centroids coincide: plain median split
             (let [e (- cmax cmin)]
-              (set sort-scene s)
-              (set sort-axis (if (and (> e.x e.y) (> e.x e.z)) 0 (if (> e.y e.z) 1 2)))
-              (qsort (addr s.tidx[first]) (cast u64 count) (sizeof u32) cmp-tri)
+              (let [ax (if (and (> e.x e.y) (> e.x e.z)) 0 (if (> e.y e.z) 1 2))]
+                (sort::sort-by {(slice u32) :data (addr s.tidx[first]) :len (cast u64 count)}
+                               (fn [a u32] [b u32] bool
+                                 (< (axis (centroid (addr s.tris[a])) ax) (axis (centroid (addr s.tris[b])) ax)))))
               (set mid (/ count 2))))
         (let [l s.nnode]
           (+= s.nnode 2)
