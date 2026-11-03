@@ -27,8 +27,8 @@
 ; One form is exactly one instruction, so the kernel author controls
 ; scheduling (GPU cores issue in order):
 ;
-;   (<- t0 (* a b))     (<- t0 (+ t0 c))     (<- t0 (sat (* t0 t1)))
-;   (<- f0 (<= t6 t9))  (<- (at ht f0) -1.0) ; predicated on flag 0
+;   (<-! t0 (* a b))     (<-! t0 (+ t0 c))     (<-! t0 (sat (* t0 t1)))
+;   (<-! f0 (<= t6 t9))  (<-! (at ht f0) -1.0) ; predicated on flag 0
 ;
 ; Operators build an `expr`, which is not an operand, so a compound
 ; expression such as (+ (* a b) c) does not compile.
@@ -107,37 +107,37 @@
 
 ;; -------------------------------------------------------- expressions ---
 
-; one pending instruction: what an operator returns, emitted by <-
+; one pending instruction: what an operator returns, emitted by <-!
 (struct expr [op opcode] [a operand] [b operand] [sat bool])
 
 (defn- ex [op opcode] [a operand] [b operand] expr {expr :op op :a a :b b})
 (defn- mov [a operand] expr (ex opcode.MOV a none))
 
 ; an operand from an operand or a number (f32 → float immediate, integer → uint)
-(defmacro- arg (x)
+(defmacro- arg! (x)
   (let [t (type-of x)]
     (cond ((eq t 'operand) x)
           ((eq (type-kind t) 'float) `(fimm ,x))
           (else `(uimm ,x)))))
 
 ; the binary operators, with an operand or a number on the right
-(defmacro- kir-binop (op code)
+(defmacro- def-binop! (op code)
   `(do (defop ,op [a operand] [b operand] expr (ex ,code a b))
        (defop ,op [a operand] [b f32] expr (ex ,code a (fimm b)))
        (defop ,op [a operand] [b u32] expr (ex ,code a (uimm b)))))
-(kir-binop + opcode.ADD)
-(kir-binop * opcode.MUL)
-(kir-binop & opcode.AND)
-(kir-binop | opcode.OR)
-(kir-binop ^ opcode.XOR)
-(kir-binop << opcode.SHL)
-(kir-binop >> opcode.SHR)
+(def-binop! + opcode.ADD)
+(def-binop! * opcode.MUL)
+(def-binop! & opcode.AND)
+(def-binop! | opcode.OR)
+(def-binop! ^ opcode.XOR)
+(def-binop! << opcode.SHL)
+(def-binop! >> opcode.SHR)
 (defop - [a operand] [b operand] expr (ex opcode.ADD a (- b)))
 (defop - [a operand] [b f32] expr (ex opcode.ADD a (- (fimm b))))
 
-(defmacro min (a b) `(ex opcode.MIN (arg ,a) (arg ,b)))
-(defmacro max (a b) `(ex opcode.MAX (arg ,a) (arg ,b)))
-(defmacro pow (a b) `(ex opcode.POW (arg ,a) (arg ,b)))
+(defmacro min! (a b) `(ex opcode.MIN (arg! ,a) (arg! ,b)))
+(defmacro max! (a b) `(ex opcode.MAX (arg! ,a) (arg! ,b)))
+(defmacro pow! (a b) `(ex opcode.POW (arg! ,a) (arg! ,b)))
 (defn floor [a operand] expr (ex opcode.FLOOR a none))
 (defn frac [a operand] expr (ex opcode.FRAC a none))
 (defn inv [a operand] expr (ex opcode.INV a none))
@@ -153,20 +153,20 @@
 (def f0 flag {flag :n 0})
 (def f1 flag {flag :n 1})
 
-(defmacro- kir-cmpop (op c)
+(defmacro- def-cmpop! (op c)
   `(do (defop ,op [a operand] [b operand] cmp {cmp :cond ,c :a a :b b})
        (defop ,op [a operand] [b f32] cmp {cmp :cond ,c :a a :b (fimm b)})
        (defop ,op [a operand] [b u32] cmp {cmp :cond ,c :a a :b (uimm b)})))
-(kir-cmpop = cmpc.EQ)
-(kir-cmpop != cmpc.NE)
-(kir-cmpop > cmpc.GT)
-(kir-cmpop >= cmpc.GE)
-(kir-cmpop < cmpc.LT)
-(kir-cmpop <= cmpc.LE)
+(def-cmpop! = cmpc.EQ)
+(def-cmpop! != cmpc.NE)
+(def-cmpop! > cmpc.GT)
+(def-cmpop! >= cmpc.GE)
+(def-cmpop! < cmpc.LT)
+(def-cmpop! <= cmpc.LE)
 
 ;; ------------------------------------------------------------ emitting ---
 ; (the emitters are :noinline: the kernel is built once, at startup, and
-; inlining them into every (<- ...) only makes the builder huge to compile)
+; inlining them into every (<-! ...) only makes the builder huge to compile)
 
 (defn- emit-op [d operand] [e expr] [pred u8] void :noinline
   (let [i (new-inst e.op)]
@@ -185,12 +185,12 @@
     (set i.b c.b)
     (emit i)))
 
-; (<- dst e): one instruction. dst is a register, (at reg flag) for a write
+; (<-! dst e): one instruction. dst is a register, (at reg flag) for a write
 ; predicated on the flag, or a flag when e is a compare. e is an operator
 ; form, an operand, or a number.
 ;
 ; The macro reads e's operator when the program is compiled and expands to
-; one call of an emitter with the opcode already chosen — (<- t0 (* a b)) is
+; one call of an emitter with the opcode already chosen — (<-! t0 (* a b)) is
 ; (emit2 opcode.MUL t0 a b 0 false) — so building the kernel makes no expr
 ; values and the builder stays small (and quick to compile). Anything it
 ; doesn't recognise (an expr kept in a variable, say) goes the general way.
@@ -215,7 +215,7 @@
 ; the opcode or condition an operator stands for (nil: not one of them)
 (defmeta kir-binop (head)
   (cond ((eq head '+) 'ADD) ((eq head '*) 'MUL) ((eq head '&) 'AND) ((eq head '|) 'OR) ((eq head '^) 'XOR)
-        ((eq head '<<) 'SHL) ((eq head '>>) 'SHR) ((eq head 'min) 'MIN) ((eq head 'max) 'MAX) ((eq head 'pow) 'POW)
+        ((eq head '<<) 'SHL) ((eq head '>>) 'SHR) ((eq head 'min!) 'MIN) ((eq head 'max!) 'MAX) ((eq head 'pow!) 'POW)
         (else nil)))
 (defmeta kir-unop (head)
   (cond ((eq head 'floor) 'FLOOR) ((eq head 'frac) 'FRAC) ((eq head 'inv) 'INV) ((eq head 'sqrt) 'SQRT)
@@ -224,7 +224,7 @@
   (cond ((eq head '=) 'EQ) ((eq head '!=) 'NE) ((eq head '>) 'GT) ((eq head '>=) 'GE) ((eq head '<) 'LT)
         ((eq head '<=) 'LE) (else nil)))
 
-(defmacro <- (d e)
+(defmacro <-! (d e)
   (let [masked (and (list? d) (eq (first d) 'at))]
        [dst (if masked (nth d 1) d)]
        [pred (if masked `(+ 1 (. ,(nth d 2) n)) 0)]
@@ -234,18 +234,18 @@
        [n (if (list? x) (- (length x) 1) 0)]
     (cond
       ((and head (= n 2) (kir-cmp head))
-       `(emit-cmp2 (. ,d n) ,(list '. 'cmpc (kir-cmp head)) (arg ,(nth x 1)) (arg ,(nth x 2))))
+       `(emit-cmp2 (. ,d n) ,(list '. 'cmpc (kir-cmp head)) (arg! ,(nth x 1)) (arg! ,(nth x 2))))
       ((and head (= n 2) (kir-binop head))
-       `(emit2 ,(list '. 'opcode (kir-binop head)) ,dst (arg ,(nth x 1)) (arg ,(nth x 2)) ,pred ,sat))
+       `(emit2 ,(list '. 'opcode (kir-binop head)) ,dst (arg! ,(nth x 1)) (arg! ,(nth x 2)) ,pred ,sat))
       ((and head (= n 2) (eq head '-))
-       `(emit2 opcode.ADD ,dst (arg ,(nth x 1)) (- (arg ,(nth x 2))) ,pred ,sat))
+       `(emit2 opcode.ADD ,dst (arg! ,(nth x 1)) (- (arg! ,(nth x 2))) ,pred ,sat))
       ((and head (= n 1) (kir-unop head))
-       `(emit2 ,(list '. 'opcode (kir-unop head)) ,dst (arg ,(nth x 1)) none ,pred ,sat))
+       `(emit2 ,(list '. 'opcode (kir-unop head)) ,dst (arg! ,(nth x 1)) none ,pred ,sat))
       (else                                ; an operand, a number, or an expr/cmp value
        (let [t (type-of e)]
          (cond ((eq t 'cmp) `(emit-cmp ,d ,e))
                ((eq t 'expr) `(emit-op ,dst ,e ,pred))
-               (else `(emit2 opcode.MOV ,dst (arg ,e) none ,pred false))))))))
+               (else `(emit2 opcode.MOV ,dst (arg! ,e) none ,pred false))))))))
 
 ;; -------------------------------------------------------------- labels ---
 
@@ -271,11 +271,11 @@
         (+= l.nfix 1)))))
 
 (defmacro bind! (l) `(bind-label (addr ,l)))
-(defmacro jmp (l) `(kjump opcode.JMP f0 (addr ,l)))
-(defmacro jmp-if (fl l) `(kjump opcode.JIF ,fl (addr ,l)))       ; scalar flag set
-(defmacro jmp-any (fl l) `(kjump opcode.JANY ,fl (addr ,l)))     ; some lane has the flag
-(defmacro jmp-none (fl l) `(kjump opcode.JNONE ,fl (addr ,l)))   ; no lane has it
-(defmacro jmp-all (fl l) `(kjump opcode.JALL ,fl (addr ,l)))     ; every lane has it
+(defmacro jmp! (l) `(kjump opcode.JMP f0 (addr ,l)))
+(defmacro jmp-if! (fl l) `(kjump opcode.JIF ,fl (addr ,l)))       ; scalar flag set
+(defmacro jmp-any! (fl l) `(kjump opcode.JANY ,fl (addr ,l)))     ; some lane has the flag
+(defmacro jmp-none! (fl l) `(kjump opcode.JNONE ,fl (addr ,l)))   ; no lane has it
+(defmacro jmp-all! (fl l) `(kjump opcode.JALL ,fl (addr ,l)))     ; every lane has it
 
 ;; -------------------------------------------------------------- memory ---
 
