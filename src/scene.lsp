@@ -349,6 +349,17 @@
        [right (normalize (cross fwd (vec3 0.0 1.0 0.0)))]
     {camera :pos pos :fwd fwd :right right :up (cross right fwd) :tan (math::tanf (/ (* 34.0 PI) 360.0))}))
 
+; anywhere around the teapot: yaw as orbit's angle, pitch up from orbit's
+; height, the distance scaled by zoom (yaw 0, pitch 0, zoom 1 = (orbit 0.0))
+(defn view [yaw f32] [pitch f32] [zoom f32] camera
+  (let [look (vec3 0.2 1.25 0.0)]
+       [a0 f32 0.635] [dist (* zoom (math::sqrtf (+ (* 9.44 9.44) (* 3.15 3.15))))]   ; orbit's radius, height above look
+       [el (+ (math::atan2f 3.15 9.44) pitch)]
+       [pos (+ look (vec3 (* dist (math::cosf el) (math::sinf (+ a0 yaw))) (* dist (math::sinf el)) (* dist (math::cosf el) (math::cosf (+ a0 yaw)))))]
+       [fwd (normalize (- look pos))]
+       [right (normalize (cross fwd (vec3 0.0 1.0 0.0)))]
+    {camera :pos pos :fwd fwd :right right :up (cross right fwd) :tan (math::tanf (/ (* 34.0 PI) 360.0))}))
+
 ; the look, shared with the GPU kernel
 (def light-pos v3 {v3 :x -6.0 :y 8.0 :z 0.5})
 (const LIGHT-RADIUS 1.6)

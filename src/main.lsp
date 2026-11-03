@@ -2,7 +2,9 @@
 ; kernel interfaces: DRM/KMS dumb buffers via raw ioctls (no libdrm, no Mesa,
 ; no X11/Wayland/GL/Vulkan), or a PPM file.
 ;
-;   teapot                  camera orbits the teapot on the first DRM output (run from a VT)
+;   teapot                  camera orbits the teapot on the first DRM output (run from a VT);
+;                           built with make SDL=1, in a desktop window instead (see window.lsp)
+;   teapot -x               the desktop window (make SDL=1): drag to turn, fps in the title
 ;   teapot -p               still image instead, refined until Enter is pressed
 ;   teapot -o out.ppm       render a still to a file (-w/-h set the size)
 ;   teapot -o f.ppm -n 120  render a 120-frame orbit to f_0000.ppm ... f_0119.ppm
@@ -25,6 +27,7 @@
 (import "temporal")
 (import "gpu")
 (import "display")
+(if-defined TEAPOT_SDL (import "window"))
 (using libc posix io prelude)
 
 ; set by the signal handler, read by the loops: atomic, so no load is cached
@@ -120,8 +123,8 @@
 (defn run [argc i32] [argv (ptr (ptr i8))] i32
   (let [out (ptr i8) null] [card (ptr i8) null]
        [W u32 1280] [H u32 720] [hold -1] [nframes u32 0] [rscale u32 1] [spp-arg 0]
-       [still false] [no-blend false] [opt 0]
-    (while (!= (set-opt (addr opt) (getopt argc argv c"o:d:w:h:s:t:pn:r:b")) -1)
+       [still false] [no-blend false] [in-window false] [opt 0]
+    (while (!= (set-opt (addr opt) (getopt argc argv c"o:d:w:h:s:t:pn:r:bx")) -1)
       (case opt (#\o (set out optarg))
         (#\d (set card optarg))
         (#\w (set W (cast u32 (atoi optarg))))
@@ -132,14 +135,25 @@
         (#\n (set nframes (cast u32 (atoi optarg))))
         (#\r (set rscale (if (> (atoi optarg) 0) (cast u32 (atoi optarg)) 1)))
         (#\b (set no-blend true))
+        (#\x (set in-window true))
         (else
-         (fprintf stderr c"usage: %s [-o file.ppm [-n frames]] [-p] [-d /dev/dri/cardN]\n       [-w W -h H] [-s spp] [-r scale] [-b] [-t seconds]\n"
+         (fprintf stderr c"usage: %s [-o file.ppm [-n frames]] [-p] [-x] [-d /dev/dri/cardN]\n       [-w W -h H] [-s spp] [-r scale] [-b] [-t seconds]\n"
                   argv[0])
          (return 1))))
 
     (tone::init)
     (let [t0 (now)] [scene (scene::build)] [filebuf (ptr u32) null] [tgt {display::target}]
       (fprintf stderr c"teapot: %u triangles, %u BVH nodes (%.0f ms)\n" scene.ntri scene.nnode (* (- (now) t0) 1e3))
+      ; a desktop window: asked for, or (built with SDL) the screen belongs to a desktop session
+      (if-defined TEAPOT_SDL
+        (let [desktop (or (!= (getenv c"DISPLAY") null) (!= (getenv c"WAYLAND_DISPLAY") null))]
+          (when (and (= out null) (or in-window (and desktop (= card null) (not still))))
+            (signal::signal signal::SIGINT on-signal)
+            (signal::signal signal::SIGTERM on-signal)
+            (return (run-window (addr scene) W H rscale (if (> spp-arg 0) (cast u32 spp-arg) 1) no-blend hold))))
+        (when in-window
+          (fprintf stderr c"-x: this teapot was built without SDL2; build it with make SDL=1\n")
+          (return 1)))
       (if (!= out null)
           (do (set filebuf (cast (ptr u32) (calloc (* (cast u64 W) H) 4)))
               (set tgt (display::xrgb filebuf W H)))
@@ -249,6 +263,53 @@
                        (sleep (if (>= hold 0) 0 10))))))
             (fprintf stderr c"rendered %ux%u @ %u spp on the gpu in %.2f s\n" tgt.w tgt.h spp secs)
             0))))))
+
+; The real-time view in a desktop window: the GPU renders frame f+1 while
+; frame f is blended and shown; the mouse and keys move the camera.
+(if-defined TEAPOT_SDL
+  (defn run-window [s (ptr scene::model)] [W u32] [H u32] [rscale u32] [spp-arg u32] [no-blend bool] [hold i32] i32
+    (let [fw (/ (- (+ W rscale) 1) rscale)] [fh (/ (- (+ H rscale) 1) rscale)]
+         [spp (if (> spp-arg MAX-PASS) MAX-PASS spp-arg)]   ; (one pass per frame)
+         [framebuf (cast (ptr u32) (calloc (* (cast u64 fw) fh) 4))]
+         [frame (display::xrgb framebuf fw fh)]
+         [g (gpu::open s fw fh)]
+      (defer (free framebuf))
+      (when (= g null) (return 1))
+      (let [wd (window::open c"teapot" W H fw fh)]
+        (when (= wd null) (return 1))
+        (defer (window::close wd))
+        (let [blend (not no-blend)] [history {temporal::state}]
+             [depth (ptr f32) (if blend (cast (ptr f32) (calloc (* (cast u64 fw) fh) 4)) null)]
+             [nthreads (sysconf _SC_NPROCESSORS_ONLN)] [threads u32 (if (< nthreads 1) 1 (cast u32 nthreads))]
+             [v (window::start-view)] [cam (scene::view 0.0 0.0 1.0)]
+             [start (now)] [last start] [tick start] [tick-frames u32 0] [frames u32 0] [f u32 0]
+             [title (array i8 160)]
+          (defer (free depth))
+          (fprintf stderr c"window %ux%u, rendering %ux%u @ %u spp%s on the gpu\n" W H fw fh spp (if blend c" + temporal accumulation" c""))
+          (unless (gpu::submit g (addr cam) spp (pass-seed 0) 0) (return 1))
+          (while (not (quitting))
+            (unless (gpu::collect g framebuf depth) (return 1))
+            (let [shown cam] [t (now)]
+              ; the next frame's camera, from the input so far; it renders while this one is shown
+              (unless (window::poll wd (addr v) (cast f32 (- t last))) (break))
+              (set last t)
+              (set cam (scene::view v.yaw v.pitch v.zoom))
+              (unless (gpu::submit g (addr cam) spp (pass-seed (+ f 1)) (* (+ f 1) spp)) (return 1))
+              (when blend (temporal::blend (addr history) framebuf fw fh depth (addr shown) threads))
+              (window::show wd frame)
+              (+= frames 1)
+              (+= tick-frames 1)
+              (+= f 1)
+              (when (>= (- t tick) 0.5)
+                (snprintf title 160 c"teapot  -  %.1f fps  -  %ux%u @ %u spp  -  drag to turn, wheel to zoom, space: %s"
+                          (/ (cast f64 tick-frames) (- t tick)) fw fh spp (if v.auto c"stop" c"orbit"))
+                (window::set-title wd title)
+                (set tick t)
+                (set tick-frames 0))
+              (when (and (>= hold 0) (>= (- t start) (cast f64 hold))) (break))))
+          (let [secs (- (now) start)]
+            (fprintf stderr c"%u frames in %.1f s (%.1f fps) on the gpu\n" frames secs (/ (cast f64 frames) secs)))
+          0)))))
 
 ; the camera angle of animation frame f: evenly around the orbit for a file,
 ; by the clock on screen
