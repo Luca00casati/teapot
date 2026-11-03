@@ -162,7 +162,7 @@
                         (set d.handle[k] cd.handle)
                         (set d.size cd.size)
                         (let [fb {drm_mode_fb_cmd :width cd.width :height cd.height :pitch cd.pitch
-                                                        :bpp 32 :depth 24 :handle cd.handle}]
+                                                  :bpp 32 :depth 24 :handle cd.handle}]
                           (when (!= (ioctl fd DRM_IOCTL_MODE_ADDFB (addr fb)) 0)
                             (perror c"ADDFB") (close-card d) (return false))
                           (set d.fb[k] fb.fb_id))
@@ -179,7 +179,7 @@
                       (ioctl fd DRM_IOCTL_MODE_GETCRTC (addr d.saved))
                       (set d.conn conns[i])
                       (let [sc {drm_mode_crtc :set_connectors_ptr (cast u64 (addr d.conn)) :count_connectors 1
-                                                    :crtc_id crtc :fb_id d.fb[0] :mode_valid 1 :mode mode}]
+                                              :crtc_id crtc :fb_id d.fb[0] :mode_valid 1 :mode mode}]
                         (when (!= (ioctl fd DRM_IOCTL_MODE_SETCRTC (addr sc)) 0)
                           (perror c"SETCRTC (is a compositor holding DRM master? run from a text VT)")
                           (set d.saved.mode_valid 0)

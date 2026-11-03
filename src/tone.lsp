@@ -1,7 +1,6 @@
 ; tone.lsp — passes and frames are averaged in linear light: 8-bit display
 ; values in through lin8, 12-bit linear back out through enc12.
 
-
 (import "math")
 (def lin8 (array f32 256))
 (def enc12 (array u8 4096))

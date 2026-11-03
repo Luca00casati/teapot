@@ -100,7 +100,7 @@
 (defn blend [t (ptr state)] [frame (ptr u32)] [w u32] [h u32] [depth (ptr f32)] [cam (ptr scene::camera)] [threads u32] void
   (let [n (cast u64 (* w h))]
        [v {view :pos cam.pos :fwd cam.fwd :right cam.right :up cam.up
-                      :tx (/ (* cam.tan (cast f32 w)) (cast f32 h)) :ty cam.tan}]
+                :tx (/ (* cam.tan (cast f32 w)) (cast f32 h)) :ty cam.tan}]
     (when (= t.hist null)
       (set t.hist (falloc (* n 4)))
       (set t.next (falloc (* n 4)))
@@ -119,7 +119,7 @@
       (for [k u32 0 threads]
         (let [job (+ jobs k)]
           (set (deref job) {rows-job :t t :frame frame :w w :h h :depth depth :v v
-                                          :y0 (/ (* h k) threads) :y1 (/ (* h (+ k 1)) threads)})
+                                     :y0 (/ (* h k) threads) :y1 (/ (* h (+ k 1)) threads)})
           (thread::pthread_create (addr job.thread) null blend-thread job)))
       (for [k u32 0 threads] (thread::pthread_join (. jobs[k] thread) null))
       (free jobs))

@@ -123,19 +123,19 @@
        [still false] [no-blend false] [opt 0]
     (while (!= (set-opt (addr opt) (getopt argc argv c"o:d:w:h:s:t:pn:r:b")) -1)
       (case opt (#\o (set out optarg))
-            (#\d (set card optarg))
-            (#\w (set W (cast u32 (atoi optarg))))
-            (#\h (set H (cast u32 (atoi optarg))))
-            (#\s (set spp-arg (atoi optarg)))
-            (#\t (set hold (atoi optarg)))
-            (#\p (set still true))
-            (#\n (set nframes (cast u32 (atoi optarg))))
-            (#\r (set rscale (if (> (atoi optarg) 0) (cast u32 (atoi optarg)) 1)))
-            (#\b (set no-blend true))
-            (else
-             (fprintf stderr c"usage: %s [-o file.ppm [-n frames]] [-p] [-d /dev/dri/cardN]\n       [-w W -h H] [-s spp] [-r scale] [-b] [-t seconds]\n"
-                      argv[0])
-             (return 1))))
+        (#\d (set card optarg))
+        (#\w (set W (cast u32 (atoi optarg))))
+        (#\h (set H (cast u32 (atoi optarg))))
+        (#\s (set spp-arg (atoi optarg)))
+        (#\t (set hold (atoi optarg)))
+        (#\p (set still true))
+        (#\n (set nframes (cast u32 (atoi optarg))))
+        (#\r (set rscale (if (> (atoi optarg) 0) (cast u32 (atoi optarg)) 1)))
+        (#\b (set no-blend true))
+        (else
+         (fprintf stderr c"usage: %s [-o file.ppm [-n frames]] [-p] [-d /dev/dri/cardN]\n       [-w W -h H] [-s spp] [-r scale] [-b] [-t seconds]\n"
+                  argv[0])
+         (return 1))))
 
     (tone::init)
     (let [t0 (now)] [scene (scene::build)] [filebuf (ptr u32) null] [tgt {display::target}]
@@ -177,7 +177,7 @@
                  [history {temporal::state}]
                  [depth (ptr f32) (if blend (cast (ptr f32) (calloc (* (cast u64 fw) fh) 4)) null)]
                  [start (now)] [tick (now)] [frames u32 0] [tick-frames u32 0]
-                  ; light frames are pipelined: frame f+1 renders while f is blended and shown
+                 ; light frames are pipelined: frame f+1 renders while f is blended and shown
                  [pipelined (<= spp MAX-PASS)]
                  [next (scene::orbit 0.0)] [f u32 0]
               (fprintf stderr c"animating %ux%u @ %u spp%s on the gpu%s\n" fw fh spp

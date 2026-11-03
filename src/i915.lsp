@@ -51,7 +51,7 @@
 
 (defn- i915-sync [d (ptr driver)] [b (ptr buffer)] [write bool] void
   (let [sd {drm_i915_gem_set_domain :handle b.handle :read_domains I915_GEM_DOMAIN_CPU
-                                          :write_domain (if write I915_GEM_DOMAIN_CPU 0)}]
+                                    :write_domain (if write I915_GEM_DOMAIN_CPU 0)}]
     (ioctl (. (i915-of d) fd) DRM_IOCTL_I915_GEM_SET_DOMAIN (addr sd))))
 
 (defn- i915-reloc [d (ptr driver)] [batch (ptr buffer)] [offset u32] [target (ptr buffer)] [delta u32] [write bool] void
@@ -60,8 +60,8 @@
                      (realloc s.rel (* (sizeof drm_i915_gem_relocation_entry) (cast u64 (+ s.nrel 1))))))
     (set s.rel[s.nrel]
          {drm_i915_gem_relocation_entry :target_handle target.handle :delta delta :offset (cast u64 offset)
-               :presumed_offset (~ (cast u64 0)) :read_domains I915_GEM_DOMAIN_RENDER
-               :write_domain (if write I915_GEM_DOMAIN_RENDER 0)})
+                                        :presumed_offset (~ (cast u64 0)) :read_domains I915_GEM_DOMAIN_RENDER
+                                        :write_domain (if write I915_GEM_DOMAIN_RENDER 0)})
     (+= s.nrel 1)
     (set (deref (cast (ptr u32) (+ batch.map offset))) delta)))
 
@@ -78,10 +78,10 @@
           (when (!= r.write_domain 0)
             (set (. s.obj[j] flags) (| (. s.obj[j] flags) EXEC_OBJECT_WRITE))))))
     (set s.obj[n] {drm_i915_gem_exec_object2 :handle batch.handle :relocation_count s.nrel
-                              :relocs_ptr (cast u64 s.rel)})
+                                             :relocs_ptr (cast u64 s.rel)})
     (+= n 1)
     (let [eb {drm_i915_gem_execbuffer2 :buffers_ptr (cast u64 (addr s.obj[0])) :buffer_count n
-                    :batch_len len :flags I915_EXEC_RENDER}]
+                                       :batch_len len :flags I915_EXEC_RENDER}]
       (when (!= (ioctl s.fd DRM_IOCTL_I915_GEM_EXECBUFFER2 (addr eb)) 0)
         (perror c"EXECBUFFER2")
         (return false)))
@@ -103,7 +103,7 @@
             (let [s (cast (ptr i915) (calloc 1 (sizeof i915)))] [d (cast (ptr driver) (calloc 1 (sizeof driver)))]
               (set s.fd fd)
               (set (deref d) {driver :name c"i915" :state s :alloc i915-alloc :release i915-release :sync i915-sync
-                                          :reloc i915-reloc :exec i915-exec :hung i915-hung})
+                                     :reloc i915-reloc :exec i915-exec :hung i915-hung})
               (return d))))
         (close fd))))
   null)
