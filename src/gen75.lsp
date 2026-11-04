@@ -254,9 +254,10 @@
 ; the command stream being written: dwords, and where the batch's own address goes
 (private
   (struct cmdbuf [mem (ptr u32)] [n u32] [self (array u32 3)] [nself u32])
-  (defn put [cb (ptr cmdbuf)] [x u32]
-    (set cb.mem[cb.n] x)
-    (+= cb.n 1))
+  (defn put [cb (ptr cmdbuf)] [xs ..u32]
+    (for [x :in xs]
+      (set cb.mem[cb.n] x)
+      (+= cb.n 1)))
   (defn reloc-self [cb (ptr cmdbuf)]   ; relocated to the batch itself in setup
     (set cb.self[cb.nself] cb.n)
     (+= cb.nself 1)
@@ -313,22 +314,22 @@
           (reloc-self k)                                           ; dynamic
           (put k 0)                                                ; indirect
           (reloc-self k)                                           ; instruction
-          (put k 0) (put k 1) (put k 0) (put k 1)
+          (put k 0 1 0 1)
           (put k (| (<< 3 29) (<< 2 27) 6))                        ; MEDIA_VFE_STATE
-          (put k 0) (put k (| (<< (- g.threads 1) 16) (<< 1 2))) (put k 0)
+          (put k 0 (| (<< (- g.threads 1) 16) (<< 1 2)) 0)
           (put k 8)                                                ; CURBE: 8 x 256 bits
-          (put k 0) (put k 0) (put k 0)
+          (put k 0 0 0)
           (put k (| (<< 3 29) (<< 2 27) (<< 1 16) 2))              ; MEDIA_CURBE_LOAD
-          (put k 0) (put k 256) (put k OFF-CURBE)
+          (put k 0 256 OFF-CURBE)
           (put k (| (<< 3 29) (<< 2 27) (<< 2 16) 2))              ; MEDIA_INTERFACE_DESCRIPTOR_LOAD
-          (put k 0) (put k 32) (put k OFF-IDD)
+          (put k 0 32 OFF-IDD)
           (put k (| (<< 3 29) (<< 2 27) (<< 1 24) (<< 5 16) 9))    ; GPGPU_WALKER
           (put k 0)
           (put k (<< 1 30))                                        ; SIMD16, 1x1x1 threads
-          (put k 0) (put k tiles-x)                                        ; thread group X range
-          (put k 0) (put k tiles-y)                                        ; thread group Y range
-          (put k 0) (put k 1)
-          (put k 0xffff) (put k 0xffffffff)
+          (put k 0 tiles-x)                                        ; thread group X range
+          (put k 0 tiles-y)                                        ; thread group Y range
+          (put k 0 1)
+          (put k 0xffff 0xffffffff)
           (put k (<< 0x0A 23))                                     ; MI_BATCH_BUFFER_END
           (put k 0)
           (for [i u32 0 cb.nself] (drv.reloc drv batch (* cb.self[i] 4) batch 1 false))
