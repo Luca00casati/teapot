@@ -257,7 +257,6 @@
   (defn put [cb (ptr cmdbuf)] [x u32]
     (set cb.mem[cb.n] x)
     (+= cb.n 1))
-  (defmacro out! (cb &rest xs) `(do ,@(map (lambda (x) `(put ,cb ,x)) xs)))
   (defn reloc-self [cb (ptr cmdbuf)]   ; relocated to the batch itself in setup
     (set cb.self[cb.nself] cb.n)
     (+= cb.nself 1)
@@ -307,31 +306,31 @@
               (drv.reloc drv batch (+ ss-off 4) (+ bufs i) 0 (!= i 0)))))
 
         (let [cb {cmdbuf :mem mem}] [k (addr cb)]
-          (out! k (| (<< 3 29) (<< 1 27) (<< 1 24) (<< 4 16) 2))    ; PIPELINE_SELECT GPGPU
-          (out! k (| (<< 3 29) (<< 1 24) (<< 1 16) 8))              ; STATE_BASE_ADDRESS
-          (out! k 0)
+          (put k (| (<< 3 29) (<< 1 27) (<< 1 24) (<< 4 16) 2))    ; PIPELINE_SELECT GPGPU
+          (put k (| (<< 3 29) (<< 1 24) (<< 1 16) 8))              ; STATE_BASE_ADDRESS
+          (put k 0)
           (reloc-self k)                                           ; surface
           (reloc-self k)                                           ; dynamic
-          (out! k 0)                                                ; indirect
+          (put k 0)                                                ; indirect
           (reloc-self k)                                           ; instruction
-          (out! k 0 1 0 1)
-          (out! k (| (<< 3 29) (<< 2 27) 6))                        ; MEDIA_VFE_STATE
-          (out! k 0 (| (<< (- g.threads 1) 16) (<< 1 2)) 0)
-          (out! k 8)                                                ; CURBE: 8 x 256 bits
-          (out! k 0 0 0)
-          (out! k (| (<< 3 29) (<< 2 27) (<< 1 16) 2))              ; MEDIA_CURBE_LOAD
-          (out! k 0 256 OFF-CURBE)
-          (out! k (| (<< 3 29) (<< 2 27) (<< 2 16) 2))              ; MEDIA_INTERFACE_DESCRIPTOR_LOAD
-          (out! k 0 32 OFF-IDD)
-          (out! k (| (<< 3 29) (<< 2 27) (<< 1 24) (<< 5 16) 9))    ; GPGPU_WALKER
-          (out! k 0)
-          (out! k (<< 1 30))                                        ; SIMD16, 1x1x1 threads
-          (out! k 0 tiles-x)                                        ; thread group X range
-          (out! k 0 tiles-y)                                        ; thread group Y range
-          (out! k 0 1)
-          (out! k 0xffff 0xffffffff)
-          (out! k (<< 0x0A 23))                                     ; MI_BATCH_BUFFER_END
-          (out! k 0)
+          (put k 0) (put k 1) (put k 0) (put k 1)
+          (put k (| (<< 3 29) (<< 2 27) 6))                        ; MEDIA_VFE_STATE
+          (put k 0) (put k (| (<< (- g.threads 1) 16) (<< 1 2))) (put k 0)
+          (put k 8)                                                ; CURBE: 8 x 256 bits
+          (put k 0) (put k 0) (put k 0)
+          (put k (| (<< 3 29) (<< 2 27) (<< 1 16) 2))              ; MEDIA_CURBE_LOAD
+          (put k 0) (put k 256) (put k OFF-CURBE)
+          (put k (| (<< 3 29) (<< 2 27) (<< 2 16) 2))              ; MEDIA_INTERFACE_DESCRIPTOR_LOAD
+          (put k 0) (put k 32) (put k OFF-IDD)
+          (put k (| (<< 3 29) (<< 2 27) (<< 1 24) (<< 5 16) 9))    ; GPGPU_WALKER
+          (put k 0)
+          (put k (<< 1 30))                                        ; SIMD16, 1x1x1 threads
+          (put k 0) (put k tiles-x)                                        ; thread group X range
+          (put k 0) (put k tiles-y)                                        ; thread group Y range
+          (put k 0) (put k 1)
+          (put k 0xffff) (put k 0xffffffff)
+          (put k (<< 0x0A 23))                                     ; MI_BATCH_BUFFER_END
+          (put k 0)
           (for [i u32 0 cb.nself] (drv.reloc drv batch (* cb.self[i] 4) batch 1 false))
           (set g.batch-len (* cb.n 4))))
       (set g.drv drv)

@@ -52,9 +52,9 @@
 (def hn reg3) (def hg reg3)              ; interpolated / geometric normal
 (def hm operand)                         ; material: 0 miss, 1 teapot, 2 floor
 ; temporaries t0..t10, also as an array for computed indices: (tn i)
-(private
-  (defmacro def-temps! (n) `(do ,@(map (lambda (i) `(def ,(sym c"t" i) operand)) (range n)) (def temps (array operand ,n)))))
-(def-temps! 11)
+(def t0 operand) (def t1 operand) (def t2 operand) (def t3 operand) (def t4 operand) (def t5 operand)
+(def t6 operand) (def t7 operand) (def t8 operand) (def t9 operand) (def t10 operand)
+(def temps (array operand 11))
 (private
   (defn tn [i i32] -> operand (return temps[i])))
 ; shading state that survives a traversal
@@ -70,16 +70,15 @@
 (def dbg-nodes operand) (def dbg-tris operand)
 
 (private
-  (defmacro alloc-temps! (n)
-    `(do ,@(map (lambda (i) `(do (set ,(sym c"t" i) (vreg)) (set temps[,i] ,(sym c"t" i)))) (range n))))
-
   (defn alloc-registers [] :optnone
     ; vector registers are numbered in the order of these calls
     (set ro (vreg3)) (set rd (vreg3)) (set ri (vreg3)) (set rq (vreg3))
     (set ht (vreg))
     (set hn (vreg3)) (set hg (vreg3))
     (set hm (vreg))
-    (alloc-temps! 11)
+    (set t0 (vreg)) (set t1 (vreg)) (set t2 (vreg)) (set t3 (vreg)) (set t4 (vreg)) (set t5 (vreg))
+    (set t6 (vreg)) (set t7 (vreg)) (set t8 (vreg)) (set t9 (vreg)) (set t10 (vreg))
+    (set temps {(array operand 11) t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10})
     (set sp (vreg3)) (set sn (vreg3)) (set sg (vreg3)) (set sd (vreg3))
     (set sm (vreg))
     (set acc (vreg3)) (set thr (vreg3))
