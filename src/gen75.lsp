@@ -37,23 +37,23 @@
 (private
   (struct gop [file u32] [ty u32] [nr u32] [sub u32] [vs u32] [w u32] [hs u32] [neg u32] [imm u32])
 
-  (defn gnull [ty u32] gop {gop :file RF-ARF :ty ty :w 1})
-  (defn gvec [r u32] [ty u32] gop {gop :file RF-GRF :ty ty :nr r :vs 8 :w 8 :hs 1})   ; SIMD16 in r:r+1
-  (defn gsc [r u32] [c u32] [ty u32] gop {gop :file RF-GRF :ty ty :nr r :sub (* c 4) :w 1}) ; dword c of r
-  (defn gimm [v u32] [ty u32] gop {gop :file RF-IMM :ty ty :imm v})
+  (defn gnull [ty u32] -> gop (return {gop :file RF-ARF :ty ty :w 1}))
+  (defn gvec [r u32] [ty u32] -> gop (return {gop :file RF-GRF :ty ty :nr r :vs 8 :w 8 :hs 1}))   ; SIMD16 in r:r+1
+  (defn gsc [r u32] [c u32] [ty u32] -> gop (return {gop :file RF-GRF :ty ty :nr r :sub (* c 4) :w 1})) ; dword c of r
+  (defn gimm [v u32] [ty u32] -> gop (return {gop :file RF-IMM :ty ty :imm v}))
 
   ; bits lo..hi of the 128-bit instruction in[0..3] = v
-  (defn setb [in (ptr u32)] [hi u32] [lo u32] [v u32] void
+  (defn setb [in (ptr u32)] [hi u32] [lo u32] [v u32]
     (let [x v]
       (for [b lo (+ hi 1)]
         (let [w (/ b 32)] [s (% b 32)]
           (set in[w] (| (& in[w] (~ (<< 1 s))) (<< (& x 1) s)))
           (set x (>> x 1))))))
 
-  (defn enc-vs [v u32] u32 (cond ((= v 0) 0) ((= v 1) 1) ((= v 2) 2) ((= v 4) 3) ((= v 8) 4) ((= v 16) 5) (else 6)))
-  (defn enc-w [w u32] u32 (cond ((= w 1) 0) ((= w 2) 1) ((= w 4) 2) ((= w 8) 3) (else 4)))
-  (defn enc-hs [h u32] u32 (cond ((= h 0) 0) ((= h 1) 1) ((= h 2) 2) (else 3)))
-  (defn enc-es [e u32] u32 (cond ((= e 1) 0) ((= e 2) 1) ((= e 4) 2) ((= e 8) 3) (else 4)))
+  (defn enc-vs [v u32] -> u32 (cond ((= v 0) (return 0)) ((= v 1) (return 1)) ((= v 2) (return 2)) ((= v 4) (return 3)) ((= v 8) (return 4)) ((= v 16) (return 5)) (else (return 6))))
+  (defn enc-w [w u32] -> u32 (cond ((= w 1) (return 0)) ((= w 2) (return 1)) ((= w 4) (return 2)) ((= w 8) (return 3)) (else (return 4))))
+  (defn enc-hs [h u32] -> u32 (cond ((= h 0) (return 0)) ((= h 1) (return 1)) ((= h 2) (return 2)) (else (return 3))))
+  (defn enc-es [e u32] -> u32 (cond ((= e 1) (return 0)) ((= e 2) (return 1)) ((= e 4) (return 2)) ((= e 8) (return 3)) (else (return 4))))
 
   ; modifiers of one EU instruction
   (struct mods [pred u32] [pinv u32] [flag u32] [cmod u32] [sat u32] [es u32] [nomask u32])
@@ -66,7 +66,7 @@
 (def enc encoder)
 
 (private
-  (defn eu-emit [opc u32] [m mods] [d gop] [s0 gop] [s1 gop] [nsrc u32] [func u32] void
+  (defn eu-emit [opc u32] [m mods] [d gop] [s0 gop] [s1 gop] [nsrc u32] [func u32]
     (when (= enc.n enc.cap)
       (set enc.cap (if (= enc.cap 0) 4096 (* enc.cap 2)))
       (set enc.code (cast (ptr u32) (realloc enc.code (* 16 (cast u64 enc.cap))))))
@@ -113,13 +113,13 @@
                 (setb i 120 117 (enc-vs s1.vs)))))
       (+= enc.n 1)))
 
-  (defn op1 [opc u32] [m mods] [d gop] [s gop] void (eu-emit opc m d s (gnull TY-UD) 1 0))
-  (defn op2 [opc u32] [m mods] [d gop] [a gop] [b gop] void (eu-emit opc m d a b 2 0))
-  (defn eu-mov [m mods] [d gop] [s gop] void (op1 EU-MOV m d s))
-  (defn eu-send [sfid u32] [dst gop] [src u32] [desc u32] void
+  (defn op1 [opc u32] [m mods] [d gop] [s gop] (eu-emit opc m d s (gnull TY-UD) 1 0))
+  (defn op2 [opc u32] [m mods] [d gop] [a gop] [b gop] (eu-emit opc m d a b 2 0))
+  (defn eu-mov [m mods] [d gop] [s gop] (op1 EU-MOV m d s))
+  (defn eu-send [sfid u32] [dst gop] [src u32] [desc u32]
     (let [m MODS] (set m.nomask 1) (eu-emit EU-SEND m dst (gvec src TY-UD) (gimm desc TY-UD) 2 sfid)))
 
-  (defn gen-op [o operand] gop
+  (defn gen-op [o operand] -> gop
     (let [ty u32 (if (= o.ty kir::otype.F) TY-F TY-UD)] [i (cast u32 o.idx)] [g (gnull ty)]
       (case o.kind
         (okind.V (set g (gvec (+ G-VEC (* 2 i)) ty)))
@@ -134,21 +134,21 @@
         (okind.IMM (return (gimm o.imm ty)))
         (else (return g)))
       (set g.neg (cast u32 o.neg))
-      g))
+      (return g)))
 
-  (defn alu-op [op opcode] u32
+  (defn alu-op [op opcode] -> u32
     (case op
-      (opcode.MOV EU-MOV) (opcode.ADD EU-ADD) (opcode.MUL EU-MUL) (opcode.AND EU-AND) (opcode.OR EU-OR)
-      (opcode.XOR EU-XOR) (opcode.SHL EU-SHL) (opcode.SHR EU-SHR) (opcode.FLOOR EU-RNDD) (else EU-FRC)))
-  (defn math-fn [op opcode] u32
-    (case op (opcode.INV MF-INV) (opcode.SQRT MF-SQRT) (opcode.RSQ MF-RSQ) (opcode.EXP2 MF-EXP) (else MF-POW)))
-  (defn cond-mod [c cmpc] u32
-    (case c (cmpc.EQ CM-Z) (cmpc.NE CM-NZ) (cmpc.GT CM-G) (cmpc.GE CM-GE) (cmpc.LT CM-L) (else CM-LE)))
-  (defn is-jump [op opcode] bool (and (>= op opcode.JMP) (<= op opcode.JALL))))
+      (opcode.MOV (return EU-MOV)) (opcode.ADD (return EU-ADD)) (opcode.MUL (return EU-MUL)) (opcode.AND (return EU-AND)) (opcode.OR (return EU-OR))
+      (opcode.XOR (return EU-XOR)) (opcode.SHL (return EU-SHL)) (opcode.SHR (return EU-SHR)) (opcode.FLOOR (return EU-RNDD)) (else (return EU-FRC))))
+  (defn math-fn [op opcode] -> u32
+    (case op (opcode.INV (return MF-INV)) (opcode.SQRT (return MF-SQRT)) (opcode.RSQ (return MF-RSQ)) (opcode.EXP2 (return MF-EXP)) (else (return MF-POW))))
+  (defn cond-mod [c cmpc] -> u32
+    (case c (cmpc.EQ (return CM-Z)) (cmpc.NE (return CM-NZ)) (cmpc.GT (return CM-G)) (cmpc.GE (return CM-GE)) (cmpc.LT (return CM-L)) (else (return CM-LE))))
+  (defn is-jump [op opcode] -> bool (return (and (>= op opcode.JMP) (<= op opcode.JALL)))))
 
 ;; ------------------------------------------------------- IR → EU code ---
 
-(defn compile [p (ptr program)] bool
+(defn compile [p (ptr program)] -> bool
   (when (> (+ G-VEC (* 2 p.nvec)) G-VEC-END)
     (fprintf stderr c"gen75: kernel needs %u vector registers, only %d fit\n" p.nvec (/ (- G-VEC-END G-VEC) 2))
     (return false))
@@ -239,13 +239,13 @@
       (if (= f null)
           (perror TEAPOT_DUMP_KERNEL)
           (do (fwrite enc.code 16 (cast u64 enc.n) f) (fclose f)))))
-  true)
+  (return true))
 
 ;; ------------------------------------------------------ command stream ---
 
 (private
   (struct gen75 [threads u32] [drv (ptr driver)] [batch buffer] [batch-len u32])
-  (defn state-of [h (ptr hardware)] (ptr gen75) (cast (ptr gen75) h.state)))
+  (defn state-of [h (ptr hardware)] -> (ptr gen75) (return (cast (ptr gen75) h.state))))
 
 ; batch layout: commands at 0, state from 4096
 (const OFF-CURBE 4096) (const OFF-IDD (+ 4096 512)) (const OFF-BT (+ 4096 1024))
@@ -254,18 +254,18 @@
 ; the command stream being written: dwords, and where the batch's own address goes
 (private
   (struct cmdbuf [mem (ptr u32)] [n u32] [self (array u32 3)] [nself u32])
-  (defn put [cb (ptr cmdbuf)] [x u32] void
+  (defn put [cb (ptr cmdbuf)] [x u32]
     (set cb.mem[cb.n] x)
     (+= cb.n 1))
   (defmacro out! (cb &rest xs) `(do ,@(map (lambda (x) `(put ,cb ,x)) xs)))
-  (defn reloc-self [cb (ptr cmdbuf)] void   ; relocated to the batch itself in setup
+  (defn reloc-self [cb (ptr cmdbuf)]   ; relocated to the batch itself in setup
     (set cb.self[cb.nself] cb.n)
     (+= cb.nself 1)
     (put cb 1))
 
-  (defn hw-compile [h (ptr hardware)] [p (ptr program)] bool (compile p))
+  (defn hw-compile [h (ptr hardware)] [p (ptr program)] -> bool (return (compile p)))
 
-  (defn setup [h (ptr hardware)] [drv (ptr driver)] [tiles-x u32] [tiles-y u32] [bufs (ptr buffer)] bool
+  (defn setup [h (ptr hardware)] [drv (ptr driver)] [tiles-x u32] [tiles-y u32] [bufs (ptr buffer)] -> bool
     (let [g (state-of h)] [batch (addr g.batch)]
       (unless (drv.alloc drv 65536 batch) (return false))
       (drv.sync drv batch true)
@@ -335,16 +335,16 @@
           (for [i u32 0 cb.nself] (drv.reloc drv batch (* cb.self[i] 4) batch 1 false))
           (set g.batch-len (* cb.n 4))))
       (set g.drv drv)
-      true))
+      (return true)))
 
-  (defn run [h (ptr hardware)] [uniforms (ptr u32)] bool
+  (defn run [h (ptr hardware)] [uniforms (ptr u32)] -> bool
     (let [g (state-of h)] [batch (addr g.batch)]
       (g.drv.sync g.drv batch true)        ; the CURBE lives in the batch: waits for the GPU
       (memcpy (+ batch.map OFF-CURBE) uniforms (* 32 4))
-      (g.drv.exec g.drv batch g.batch-len))))
+      (return (g.drv.exec g.drv batch g.batch-len)))))
 
 ; does this layer drive the chip? A description goes to desc[64]
-(defn probe [id u32] [desc (ptr i8)] (ptr hardware)
+(defn probe [id u32] [desc (ptr i8)] -> (ptr hardware)
   (let [fam (& id 0xff00)]
     (unless (or (= fam 0x0400) (= fam 0x0a00) (= fam 0x0c00) (= fam 0x0d00)) (return null))
     (let [gt (& (>> id 4) 3)]
@@ -353,4 +353,4 @@
       (set g.threads (<< 70 gt))
       (snprintf desc 64 c"Haswell GT%u [8086:%04x]" (+ gt 1) id)
       (set (deref h) {hardware :name c"gen75" :state g :compile hw-compile :setup setup :run run})
-      h)))
+      (return h))))

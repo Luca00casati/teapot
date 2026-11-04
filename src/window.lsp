@@ -25,7 +25,7 @@
 ; as a factor of the default one
 (struct view [yaw f32] [pitch f32] [zoom f32] [auto bool])
 
-(defn start-view [] view {view :yaw 0.0 :pitch 0.0 :zoom 1.0 :auto true})
+(defn start-view [] -> view (return {view :yaw 0.0 :pitch 0.0 :zoom 1.0 :auto true}))
 
 (private
   (const WINDOWPOS-CENTERED 0x2FFF0000)  ; SDL_WINDOWPOS_CENTERED (a C macro expression)
@@ -35,14 +35,14 @@
   (const PITCH-MIN -0.29)
   (const PITCH-MAX 1.2)
 
-  (defn turn [v (ptr view)] [dyaw f32] [dpitch f32] void
+  (defn turn [v (ptr view)] [dyaw f32] [dpitch f32]
     (+= v.yaw dyaw)
     (set v.pitch (math::fminf PITCH-MAX (math::fmaxf PITCH-MIN (+ v.pitch dpitch)))))
-  (defn scale-zoom [v (ptr view)] [k f32] void
+  (defn scale-zoom [v (ptr view)] [k f32]
     (set v.zoom (math::fminf 3.0 (math::fmaxf 0.4 (* v.zoom k))))))
 
 ; a window of win-w x win-h showing frames of w x h
-(defn open [title (ptr i8)] [win-w u32] [win-h u32] [w u32] [h u32] (ptr window)
+(defn open [title (ptr i8)] [win-w u32] [win-h u32] [w u32] [h u32] -> (ptr window)
   (when (!= (sdl::SDL_Init sdl::SDL_INIT_VIDEO) 0)
     (fprintf stderr c"window: %s\n" (sdl::SDL_GetError))
     (return null))
@@ -61,9 +61,9 @@
       (fprintf stderr c"window: %s\n" (sdl::SDL_GetError))
       (close wd)
       (return null))
-    wd))
+    (return wd)))
 
-(defn close [wd (ptr window)] void
+(defn close [wd (ptr window)]
   (when (!= wd.tex null) (sdl::SDL_DestroyTexture wd.tex))
   (when (!= wd.ren null) (sdl::SDL_DestroyRenderer wd.ren))
   (when (!= wd.win null) (sdl::SDL_DestroyWindow wd.win))
@@ -71,16 +71,16 @@
   (sdl::SDL_Quit))
 
 ; show an XRGB8888 frame, stretched to the window
-(defn show [wd (ptr window)] [frame display::target] void
+(defn show [wd (ptr window)] [frame display::target]
   (sdl::SDL_UpdateTexture wd.tex null (cast (ptr void) frame.base) (cast i32 frame.pitch))
   (sdl::SDL_RenderClear wd.ren)
   (sdl::SDL_RenderCopy wd.ren wd.tex null null)
   (sdl::SDL_RenderPresent wd.ren))
 
-(defn set-title [wd (ptr window)] [text (ptr i8)] void (sdl::SDL_SetWindowTitle wd.win text))
+(defn set-title [wd (ptr window)] [text (ptr i8)] (sdl::SDL_SetWindowTitle wd.win text))
 
 ; the events since the last call, applied to v; false once the window is closed
-(defn poll [wd (ptr window)] [v (ptr view)] [dt f32] bool
+(defn poll [wd (ptr window)] [v (ptr view)] [dt f32] -> bool
   (let [ev sdl::SDL_Event undefined] [open true]
     (while (!= (sdl::SDL_PollEvent (addr ev)) 0)
       (let [t ev.type]
@@ -104,4 +104,4 @@
       (when (!= keys[sdl::SDL_SCANCODE_UP] 0) (turn v 0.0 (* speed 0.6)))
       (when (!= keys[sdl::SDL_SCANCODE_DOWN] 0) (turn v 0.0 (* speed -0.6))))
     (when v.auto (+= v.yaw (* dt (/ (* 2.0 3.14159265) 12.0))))   ; a turn in 12 s, as on the console
-    open))
+    (return open)))

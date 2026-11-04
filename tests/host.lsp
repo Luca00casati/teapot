@@ -8,14 +8,14 @@
 (import "../src/temporal")
 (using libc prelude)
 
-(defn fnv [h u64] [v u32] u64 (* (^ h (cast u64 v)) 1099511628211))
+(defn fnv [h u64] [v u32] -> u64 (return (* (^ h (cast u64 v)) 1099511628211)))
 
 (def failed i32 0)
-(defn check [what (ptr i8)] [got u64] [want u64] void
+(defn check [what (ptr i8)] [got u64] [want u64]
   (printf c"%-9s %016lx %s\n" what got (if (= got want) c"ok" c"MISMATCH"))
   (when (!= got want) (set failed 1)))
 
-(defn main [] i32
+(defn main [] -> i32
   (tone::init)
   (let [s (scene::build)] [n (scene::blob-bytes (addr s))] [blob (cast (ptr u32) (calloc 1 n))] [h u64 1469598103934665603]
     (scene::write-blob (addr s) blob)
@@ -33,4 +33,4 @@
         (temporal::blend (addr t) px w h dep (addr cam) 4))
       (for [i u32 0 (* w h)] (set hash (fnv hash px[i]))))
     (check c"temporal" hash 0x203872f244413a09))
-  failed)
+  (return failed))

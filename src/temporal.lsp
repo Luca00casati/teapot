@@ -29,7 +29,7 @@
     [t (ptr state)] [frame (ptr u32)] [w u32] [h u32] [depth (ptr f32)] [v view]
     [y0 u32] [y1 u32] [thread thread::pthread_t])
 
-  (defn blend-rows [job (ptr rows-job)] void
+  (defn blend-rows [job (ptr rows-job)]
     (let [w job.w] [h job.h] [v job.v] [pv job.t.hist-view] [ok job.t.ok]
          [ph job.t.hist] [pd job.t.hist-depth] [nh job.t.next] [nd job.t.next-depth]
          [dp (- v.pos pv.pos)]
@@ -91,15 +91,15 @@
                   (let [oc {(array f32 3) (math::fminf out[0] 1.0) (math::fminf out[1] 1.0) (math::fminf out[2] 1.0)}]
                     (set job.frame[i] (tone::encode oc 4095.0)))))))))))
 
-  (defn blend-thread [arg (ptr void)] (ptr void)
+  (defn blend-thread [arg (ptr void)] -> (ptr void)
     (blend-rows (cast (ptr rows-job) arg))
-    null)
+    (return null))
 
-  (defn falloc [n u64] (ptr f32) (cast (ptr f32) (calloc n (sizeof f32)))))
+  (defn falloc [n u64] -> (ptr f32) (return (cast (ptr f32) (calloc n (sizeof f32))))))
 
 ; blend `frame` (XRGB8888, w x h, rendered from `cam` with primary hit
 ; distances `depth`, negative on the glossy teapot) with the history, in place
-(defn blend [t (ptr state)] [frame (ptr u32)] [w u32] [h u32] [depth (ptr f32)] [cam (ptr scene::camera)] [threads u32] void
+(defn blend [t (ptr state)] [frame (ptr u32)] [w u32] [h u32] [depth (ptr f32)] [cam (ptr scene::camera)] [threads u32]
   (let [n (cast u64 (* w h))]
        [v {view :pos cam.pos :fwd cam.fwd :right cam.right :up cam.up
                 :tx (/ (* cam.tan (cast f32 w)) (cast f32 h)) :ty cam.tan}]

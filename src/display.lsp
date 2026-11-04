@@ -11,17 +11,17 @@
 ; an XRGB8888 image in memory someone else owns (a buffer or a DRM mapping)
 (struct target [base (ptr u8)] [w u32] [h u32] [pitch u32])
 
-(defn xrgb [buf (ptr u32)] [w u32] [h u32] target {target :base (cast (ptr u8) buf) :w w :h h :pitch (* w 4)})
-(defn trow [t target] [y u32] (ptr u32) (cast (ptr u32) (+ t.base (* (cast u64 y) (cast u64 t.pitch)))))
+(defn xrgb [buf (ptr u32)] [w u32] [h u32] -> target (return {target :base (cast (ptr u8) buf) :w w :h h :pitch (* w 4)}))
+(defn trow [t target] [y u32] -> (ptr u32) (return (cast (ptr u32) (+ t.base (* (cast u64 y) (cast u64 t.pitch))))))
 
 ; copy src to dst, upscaling by an integer factor
-(defn blit [src target] [dst target] [scale u32] void
+(defn blit [src target] [dst target] [scale u32]
   (for [y u32 0 dst.h]
     (let [row (trow src (if (< (/ y scale) src.h) (/ y scale) (- src.h 1)))] [drow (trow dst y)]
       (for [x u32 0 dst.w]
         (set drow[x] row[(if (< (/ x scale) src.w) (/ x scale) (- src.w 1))])))))
 
-(defn write-ppm [path (ptr i8)] [t target] bool
+(defn write-ppm [path (ptr i8)] [t target] -> bool
   (let [f (fopen path c"wb")]
     (when (= f null)
       (perror path)
@@ -37,7 +37,7 @@
               (set line[(+ (* 3 x) 2)] (truncate u8 p)))))
         (fwrite line 1 (* 3 (cast u64 t.w)) f))
       (free line))
-    (= (fclose f) 0)))
+    (return (= (fclose f) 0))))
 
 ;; ---------------------------------------------------------- DRM / KMS ---
 
@@ -53,26 +53,26 @@
   [tgt target])
 
 (private
-  (defn card-target [d (ptr drm)] [k u32] target (let [t d.tgt] (set t.base d.map[k]) t)))
-(defn front [d (ptr drm)] target (card-target d d.front))
-(defn back [d (ptr drm)] target (card-target d (- 1 d.front)))
+  (defn card-target [d (ptr drm)] [k u32] -> target (let [t d.tgt] (set t.base d.map[k]) (return t))))
+(defn front [d (ptr drm)] -> target (return (card-target d d.front)))
+(defn back [d (ptr drm)] -> target (return (card-target d (- 1 d.front))))
 
 (private
-  (defn dirty-buf [d (ptr drm)] [k u32] void
+  (defn dirty-buf [d (ptr drm)] [k u32]
     (let [c {drm_mode_fb_dirty_cmd :fb_id d.fb[k]}]
       (ioctl d.fd DRM_IOCTL_MODE_DIRTYFB (addr c)))))
 ; the front buffer changed (needed by virtio/udl style drivers)
-(defn dirty [d (ptr drm)] void (dirty-buf d d.front))
+(defn dirty [d (ptr drm)] (dirty-buf d d.front))
 
 ; until the last queued flip happened, so the back buffer is free
-(defn wait-flip [d (ptr drm)] void
+(defn wait-flip [d (ptr drm)]
   (when d.flip-pending
     (let [ev (array u8 1024)] [p {pollfd :fd d.fd :events POLLIN}]
       (when (> (poll (addr p) 1 100) 0) (read d.fd ev 1024)))   ; event content unused
     (set d.flip-pending false)))
 
 ; queue the back buffer for the next vblank (does not wait)
-(defn flip [d (ptr drm)] void
+(defn flip [d (ptr drm)]
   (let [back (- 1 d.front)]
        [fl {drm_mode_crtc_page_flip :crtc_id d.crtc :fb_id d.fb[back] :flags DRM_MODE_PAGE_FLIP_EVENT}]
     (dirty-buf d back)
@@ -87,7 +87,7 @@
           (ioctl d.fd DRM_IOCTL_MODE_SETCRTC (addr c))))
     (set d.front back)))
 
-(defn close-card [d (ptr drm)] void
+(defn close-card [d (ptr drm)]
   (when (< d.fd 0) (return))
   (wait-flip d)
   (when (!= d.saved.mode_valid 0)
@@ -104,7 +104,7 @@
   (set (deref d) {drm :fd -1}))
 
 ; set up the first connected output of the card at path; false (with d closed) if none
-(defn open-card [d (ptr drm)] [path (ptr i8)] bool
+(defn open-card [d (ptr drm)] [path (ptr i8)] -> bool
   (set (deref d) {drm :fd -1})
   (let [fd (open path (| O_RDWR O_CLOEXEC))]
     (when (< fd 0) (return false))
@@ -197,4 +197,4 @@
               (free modes) (free cenc))))))
     (fprintf stderr c"drm: %s has no usable connected output\n" path)
     (close-card d)
-    false))
+    (return false)))

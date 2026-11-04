@@ -62,22 +62,22 @@
 (def group-y operand {operand :kind okind.GROUPY :ty otype.U})
 
 (private
-  (defn opnd [kind okind] [ty otype] [idx u16] operand {operand :kind kind :ty ty :idx idx}))
-(defn uni [i i32] operand (opnd okind.U otype.F (cast u16 i)))
-(defn blk [block i32] [i i32] operand (opnd okind.B otype.F (cast u16 (+ (* block 16) i))))
-(defn lane0 [v operand] operand (opnd okind.LANE0 v.ty v.idx))
-(defn sreg [i i32] operand (opnd okind.S otype.F (cast u16 i)))
-(defn as-u [o operand] operand (let [r o] (set r.ty otype.U) r))
-(defn as-f [o operand] operand (let [r o] (set r.ty otype.F) r))
-(defn fimm [v f32] operand {operand :kind okind.IMM :ty otype.F :imm (bitcast u32 v)})
-(defn uimm [v u32] operand {operand :kind okind.IMM :ty otype.U :imm v})
-(defn is-vector [o operand] bool (or (= o.kind okind.V) (= o.kind okind.LANEX) (= o.kind okind.LANEY)))
-(defn same-reg [a operand] [b operand] bool (and (= a.kind b.kind) (= a.idx b.idx)))
+  (defn opnd [kind okind] [ty otype] [idx u16] -> operand (return {operand :kind kind :ty ty :idx idx})))
+(defn uni [i i32] -> operand (return (opnd okind.U otype.F (cast u16 i))))
+(defn blk [block i32] [i i32] -> operand (return (opnd okind.B otype.F (cast u16 (+ (* block 16) i)))))
+(defn lane0 [v operand] -> operand (return (opnd okind.LANE0 v.ty v.idx)))
+(defn sreg [i i32] -> operand (return (opnd okind.S otype.F (cast u16 i))))
+(defn as-u [o operand] -> operand (let [r o] (set r.ty otype.U) (return r)))
+(defn as-f [o operand] -> operand (let [r o] (set r.ty otype.F) (return r)))
+(defn fimm [v f32] -> operand (return {operand :kind okind.IMM :ty otype.F :imm (bitcast u32 v)}))
+(defn uimm [v u32] -> operand (return {operand :kind okind.IMM :ty otype.U :imm v}))
+(defn is-vector [o operand] -> bool (return (or (= o.kind okind.V) (= o.kind okind.LANEX) (= o.kind okind.LANEY))))
+(defn same-reg [a operand] [b operand] -> bool (return (and (= a.kind b.kind) (= a.idx b.idx))))
 
-(defop - [o operand] operand
+(defop - [o operand] -> operand
   (let [r o]
     (if (= r.kind okind.IMM) (set r.imm (^ r.imm 0x80000000)) (set r.neg (not r.neg)))
-    r))
+    (return r)))
 
 ;; ------------------------------------------------------------ program ---
 
@@ -93,19 +93,19 @@
 (def prog program)                       ; the program being built
 
 (private
-  (defn new-inst [op opcode] inst {inst :op op :target -1})
+  (defn new-inst [op opcode] -> inst (return {inst :op op :target -1}))
 
-  (defn emit [i inst] u32 :noinline
+  (defn emit [i inst] -> u32 :noinline
     (when (= prog.n prog.cap)
       (set prog.cap (if (= prog.cap 0) 1024 (* prog.cap 2)))
       (set prog.code (cast (ptr inst) (libc::realloc prog.code (* (sizeof inst) (cast u64 prog.cap))))))
     (set prog.code[prog.n] i)
     (+= prog.n 1)
-    (- prog.n 1)))
+    (return (- prog.n 1))))
 
-(defn vreg [] operand
+(defn vreg [] -> operand
   (+= prog.nvec 1)
-  (opnd okind.V otype.F (cast u16 (- prog.nvec 1))))
+  (return (opnd okind.V otype.F (cast u16 (- prog.nvec 1)))))
 
 ;; -------------------------------------------------------- expressions ---
 
@@ -113,15 +113,15 @@
 (struct expr [op opcode] [a operand] [b operand] [sat bool])
 
 (private
-  (defn ex [op opcode] [a operand] [b operand] expr {expr :op op :a a :b b})
-  (defn mov [a operand] expr (ex opcode.MOV a none))
+  (defn ex [op opcode] [a operand] [b operand] -> expr (return {expr :op op :a a :b b}))
+  (defn mov [a operand] -> expr (return (ex opcode.MOV a none)))
 
   ; the binary operators, with an operand or a number (f32: a float immediate,
   ; an integer: a uint one) on the right
   (defmacro def-binop! (op code)
-    `(do (defop ,op [a operand] [b operand] expr (ex ,code a b))
-         (defop ,op [a operand] [b f32] expr (ex ,code a (fimm b)))
-         (defop ,op [a operand] [b u32] expr (ex ,code a (uimm b))))))
+    `(do (defop ,op [a operand] [b operand] -> expr (return (ex ,code a b)))
+         (defop ,op [a operand] [b f32] -> expr (return (ex ,code a (fimm b))))
+         (defop ,op [a operand] [b u32] -> expr (return (ex ,code a (uimm b)))))))
 (def-binop! + opcode.ADD)
 (def-binop! * opcode.MUL)
 (def-binop! & opcode.AND)
@@ -129,19 +129,19 @@
 (def-binop! ^ opcode.XOR)
 (def-binop! << opcode.SHL)
 (def-binop! >> opcode.SHR)
-(defop - [a operand] [b operand] expr (ex opcode.ADD a (- b)))
-(defop - [a operand] [b f32] expr (ex opcode.ADD a (- (fimm b))))
+(defop - [a operand] [b operand] -> expr (return (ex opcode.ADD a (- b))))
+(defop - [a operand] [b f32] -> expr (return (ex opcode.ADD a (- (fimm b)))))
 
 (def-binop! min opcode.MIN)
 (def-binop! max opcode.MAX)
 (def-binop! pow opcode.POW)
-(defn floor [a operand] expr (ex opcode.FLOOR a none))
-(defn frac [a operand] expr (ex opcode.FRAC a none))
-(defn inv [a operand] expr (ex opcode.INV a none))
-(defn sqrt [a operand] expr (ex opcode.SQRT a none))
-(defn rsq [a operand] expr (ex opcode.RSQ a none))
-(defn exp2 [a operand] expr (ex opcode.EXP2 a none))
-(defn sat [e expr] expr (let [r e] (set r.sat true) r))   ; clamp the result to [0, 1]
+(defn floor [a operand] -> expr (return (ex opcode.FLOOR a none)))
+(defn frac [a operand] -> expr (return (ex opcode.FRAC a none)))
+(defn inv [a operand] -> expr (return (ex opcode.INV a none)))
+(defn sqrt [a operand] -> expr (return (ex opcode.SQRT a none)))
+(defn rsq [a operand] -> expr (return (ex opcode.RSQ a none)))
+(defn exp2 [a operand] -> expr (return (ex opcode.EXP2 a none)))
+(defn sat [e expr] -> expr (let [r e] (set r.sat true) (return r)))   ; clamp the result to [0, 1]
 
 ;; ----------------------------------------------------- compares, flags ---
 
@@ -152,9 +152,9 @@
 
 (private
   (defmacro def-cmpop! (op c)
-    `(do (defop ,op [a operand] [b operand] cmp {cmp :cond ,c :a a :b b})
-         (defop ,op [a operand] [b f32] cmp {cmp :cond ,c :a a :b (fimm b)})
-         (defop ,op [a operand] [b u32] cmp {cmp :cond ,c :a a :b (uimm b)}))))
+    `(do (defop ,op [a operand] [b operand] -> cmp (return {cmp :cond ,c :a a :b b}))
+         (defop ,op [a operand] [b f32] -> cmp (return {cmp :cond ,c :a a :b (fimm b)}))
+         (defop ,op [a operand] [b u32] -> cmp (return {cmp :cond ,c :a a :b (uimm b)})))))
 (def-cmpop! = cmpc.EQ)
 (def-cmpop! != cmpc.NE)
 (def-cmpop! > cmpc.GT)
@@ -167,7 +167,7 @@
 ; inlining them into every (<- ...) only makes the builder huge to compile)
 
 (private
-  (defn emit-op [d operand] [e expr] [pred u8] void :noinline
+  (defn emit-op [d operand] [e expr] [pred u8] :noinline
     (let [i (new-inst e.op)]
       (set i.d d)
       (set i.a e.a)
@@ -176,14 +176,14 @@
       (set i.pred pred)
       (emit i)))
 
-  (defn emit-mov [d operand] [a operand] [pred u8] void :noinline
+  (defn emit-mov [d operand] [a operand] [pred u8] :noinline
     (let [i (new-inst opcode.MOV)]
       (set i.d d)
       (set i.a a)
       (set i.pred pred)
       (emit i)))
 
-  (defn emit-cmp [fl flag] [c cmp] void :noinline
+  (defn emit-cmp [fl flag] [c cmp] :noinline
     (let [i (new-inst opcode.CMP)]
       (set i.cond c.cond)
       (set i.flag fl.n)
@@ -195,17 +195,17 @@
 ; predicated on the flag, or a flag when e is a compare. e is an operator's
 ; expr, an operand, or a number.
 (struct dest [d operand] [pred u8])     ; 0 every lane, 1 + f the lanes with flag f
-(defn at [d operand] [fl flag] dest {dest :d d :pred (+ 1 fl.n)})
+(defn at [d operand] [fl flag] -> dest (return {dest :d d :pred (+ 1 fl.n)}))
 
-(defop <- [d operand] [e expr] void (emit-op d e 0))
-(defop <- [d operand] [a operand] void (emit-mov d a 0))
-(defop <- [d operand] [x f32] void (emit-mov d (fimm x) 0))
-(defop <- [d operand] [x u32] void (emit-mov d (uimm x) 0))
-(defop <- [d dest] [e expr] void (emit-op d.d e d.pred))
-(defop <- [d dest] [a operand] void (emit-mov d.d a d.pred))
-(defop <- [d dest] [x f32] void (emit-mov d.d (fimm x) d.pred))
-(defop <- [d dest] [x u32] void (emit-mov d.d (uimm x) d.pred))
-(defop <- [fl flag] [c cmp] void (emit-cmp fl c))
+(defop <- [d operand] [e expr] (emit-op d e 0))
+(defop <- [d operand] [a operand] (emit-mov d a 0))
+(defop <- [d operand] [x f32] (emit-mov d (fimm x) 0))
+(defop <- [d operand] [x u32] (emit-mov d (uimm x) 0))
+(defop <- [d dest] [e expr] (emit-op d.d e d.pred))
+(defop <- [d dest] [a operand] (emit-mov d.d a d.pred))
+(defop <- [d dest] [x f32] (emit-mov d.d (fimm x) d.pred))
+(defop <- [d dest] [x u32] (emit-mov d.d (uimm x) d.pred))
+(defop <- [fl flag] [c cmp] (emit-cmp fl c))
 
 ;; -------------------------------------------------------------- labels ---
 
@@ -213,20 +213,20 @@
 (struct label [pos i32] [fix (ptr u32)] [nfix u32])
 
 (private
-  (defn make-label [pos i32] (ptr label)       ; (kept for the whole build: there are few)
+  (defn make-label [pos i32] -> (ptr label)       ; (kept for the whole build: there are few)
     (let [l (cast (ptr label) (libc::calloc 1 (sizeof label)))]
       (set l.pos pos)
-      l)))
-(defn new-label [] (ptr label) (make-label -1))
-(defn here [] (ptr label) (make-label (cast i32 prog.n)))   ; bound to the next instruction
+      (return l))))
+(defn new-label [] -> (ptr label) (return (make-label -1)))
+(defn here [] -> (ptr label) (return (make-label (cast i32 prog.n))))   ; bound to the next instruction
 
-(defn bind [l (ptr label)] void
+(defn bind [l (ptr label)]
   (set l.pos (cast i32 prog.n))
   (for [i u32 0 l.nfix] (set (. prog.code[l.fix[i]] target) l.pos))
   (set l.nfix 0))
 
 (private
-  (defn kjump [op opcode] [fl flag] [l (ptr label)] void :noinline
+  (defn kjump [op opcode] [fl flag] [l (ptr label)] :noinline
     (let [i (new-inst op)]
       (set i.flag fl.n)
       (set i.target l.pos)
@@ -236,15 +236,15 @@
           (set l.fix[l.nfix] at)
           (+= l.nfix 1))))))
 
-(defn jmp [l (ptr label)] void (kjump opcode.JMP f0 l))
-(defn jmp-if [fl flag] [l (ptr label)] void (kjump opcode.JIF fl l))       ; scalar flag set
-(defn jmp-any [fl flag] [l (ptr label)] void (kjump opcode.JANY fl l))     ; some lane has the flag
-(defn jmp-none [fl flag] [l (ptr label)] void (kjump opcode.JNONE fl l))   ; no lane has it
-(defn jmp-all [fl flag] [l (ptr label)] void (kjump opcode.JALL fl l))     ; every lane has it
+(defn jmp [l (ptr label)] (kjump opcode.JMP f0 l))
+(defn jmp-if [fl flag] [l (ptr label)] (kjump opcode.JIF fl l))       ; scalar flag set
+(defn jmp-any [fl flag] [l (ptr label)] (kjump opcode.JANY fl l))     ; some lane has the flag
+(defn jmp-none [fl flag] [l (ptr label)] (kjump opcode.JNONE fl l))   ; no lane has it
+(defn jmp-all [fl flag] [l (ptr label)] (kjump opcode.JALL fl l))     ; every lane has it
 
 ;; -------------------------------------------------------------- memory ---
 
-(defn load [block i32] [a operand] [b operand] [off u32] void :noinline
+(defn load [block i32] [a operand] [b operand] [off u32] :noinline
   (let [i (new-inst opcode.LOAD)]
     (set i.a a)
     (set i.b b)
@@ -252,10 +252,10 @@
     (set i.off off)
     (emit i)))
 
-(defn store [slot i32] [src operand] void :noinline
+(defn store [slot i32] [src operand] :noinline
   (let [i (new-inst opcode.STORE)]
     (set i.a src)
     (set i.target slot)
     (emit i)))
 
-(defn end [] void (emit (new-inst opcode.END)))
+(defn end [] (emit (new-inst opcode.END)))

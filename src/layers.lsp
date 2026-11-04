@@ -31,5 +31,5 @@
   [setup (ptr (fn ((ptr hardware) (ptr driver) u32 u32 (ptr buffer)) bool))]
   [run (ptr (fn ((ptr hardware) (ptr u32)) bool))])          ; queue the whole grid, return at once
 
-(defn buffer-free [b (ptr buffer)] void
+(defn buffer-free [b (ptr buffer)]
   (when (!= b.drv null) (b.drv.release b.drv b)))

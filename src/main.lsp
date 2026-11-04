@@ -32,45 +32,45 @@
 
 ; set by the signal handler, read by the loops: atomic, so no load is cached
 (def quit i32 0)
-(defn on-signal [sig i32] void (atomic-store quit 1 :relaxed))
-(defn quitting [] bool (!= (atomic-load quit :relaxed) 0))
+(defn on-signal [sig i32] (atomic-store quit 1 :relaxed))
+(defn quitting [] -> bool (return (!= (atomic-load quit :relaxed) 0)))
 
-(defn now [] f64
+(defn now [] -> f64
   (let [ts {time::timespec}]
     (time::clock_gettime time::CLOCK_MONOTONIC (addr ts))
-    (+ (cast f64 ts.tv_sec) (* (cast f64 ts.tv_nsec) 1e-9))))
+    (return (+ (cast f64 ts.tv_sec) (* (cast f64 ts.tv_nsec) 1e-9)))))
 
-(defn key-pressed [] bool
+(defn key-pressed [] -> bool
   (let [p {pollfd :fd 0 :events POLLIN}]
-    (> (poll (addr p) 1 0) 0)))
-(defn read-key [] i64 (let [c u8 0] (read 0 (addr c) 1)))
+    (return (> (poll (addr p) 1 0) 0))))
+(defn read-key [] -> i64 (let [c u8 0] (return (read 0 (addr c) 1))))
 
 (const MAX-PASS 8)                       ; samples per submitted pass (keeps every GPU batch short)
 (const ORBIT-SECONDS 12.0)               ; one revolution of the camera on screen
 
-(defn pass-seed [i u32] u32
+(defn pass-seed [i u32] -> u32
   (let [s (+ (* i 0x9E3779B9) 0x7f4a7c15)]
     (set s (^ s (>> s 15)))
     (set s (* s 0x2c1b3c6d))
-    (^ s (>> s 12))))
+    (return (^ s (>> s 12)))))
 
 ;; passes of a few samples each, averaged in linear light
 (struct accum [rgb (ptr u32)] [acc (ptr f32)] [n u32] [samples u32])
 
-(defn accum-new [n u32] accum
-  {accum :rgb (cast (ptr u32) (calloc (cast u64 n) 4)) :acc (cast (ptr f32) (calloc (* 3 (cast u64 n)) 4)) :n n})
-(defn accum-free [a (ptr accum)] void (free a.rgb) (free a.acc))
+(defn accum-new [n u32] -> accum
+  (return {accum :rgb (cast (ptr u32) (calloc (cast u64 n) 4)) :acc (cast (ptr f32) (calloc (* 3 (cast u64 n)) 4)) :n n}))
+(defn accum-free [a (ptr accum)] (free a.rgb) (free a.acc))
 
-(defn accum-add [a (ptr accum)] [g (ptr gpu::device)] [cam (ptr scene::camera)] [k u32] [seed u32] [sample-base u32] [depth (ptr f32)] bool
+(defn accum-add [a (ptr accum)] [g (ptr gpu::device)] [cam (ptr scene::camera)] [k u32] [seed u32] [sample-base u32] [depth (ptr f32)] -> bool
   (unless (and (gpu::submit g cam k seed sample-base) (gpu::collect g a.rgb depth)) (return false))
   (for [i u32 0 a.n]
     (let [p a.rgb[i]]
       (for [c u32 0 3]
         (+= a.acc[(+ (* 3 i) c)] (* tone::lin8[(& (>> p (- 16 (* 8 c))) 255)] (cast f32 k))))))
   (+= a.samples k)
-  true)
+  (return true))
 
-(defn accum-resolve [a (ptr accum)] [t display::target] void
+(defn accum-resolve [a (ptr accum)] [t display::target]
   (let [k (/ 4095.0 (cast f32 a.samples))]
     (for [y u32 0 t.h]
       (let [row (display::trow t y)]
@@ -79,7 +79,7 @@
 ; The progressive still image, drawn into tgt (the display or the file
 ; buffer). With `refine` (on screen) it keeps adding passes until a key is
 ; pressed; *key-stop then tells the caller.
-(defn still-image [g (ptr gpu::device)] [cam (ptr scene::camera)] [tgt display::target] [disp (ptr display::drm)] [spp (ptr u32)] [refine bool] [key-stop (ptr bool)] bool
+(defn still-image [g (ptr gpu::device)] [cam (ptr scene::camera)] [tgt display::target] [disp (ptr display::drm)] [spp (ptr u32)] [refine bool] [key-stop (ptr bool)] -> bool
   (let [per-pass u32 4] [acc (accum-new (* tgt.w tgt.h))] [ok true] [pass u32 0]
     (defer (accum-free (addr acc)))
     (while (!= (% (deref spp) per-pass) 0) (-= per-pass 1))
@@ -99,20 +99,20 @@
       (+= pass 1))
     (when refine (fprintf stderr c"\n"))
     (set (deref spp) acc.samples)
-    ok))
+    (return ok)))
 
 ; one animation frame with more samples than a single pass
-(defn frame-passes [g (ptr gpu::device)] [cam (ptr scene::camera)] [frame display::target] [spp u32] [f u32] [depth (ptr f32)] bool
+(defn frame-passes [g (ptr gpu::device)] [cam (ptr scene::camera)] [frame display::target] [spp u32] [f u32] [depth (ptr f32)] -> bool
   (let [acc (accum-new (* frame.w frame.h))] [ok true]
     (defer (accum-free (addr acc)))
     (while (and ok (< acc.samples spp))
       (let [done acc.samples] [k (if (< (- spp done) MAX-PASS) (- spp done) MAX-PASS)]
         (set ok (accum-add (addr acc) g cam k (pass-seed (+ (* f 1024) done)) (+ (* f spp) done) depth))))
     (when ok (accum-resolve (addr acc) frame))
-    ok))
+    (return ok)))
 
 ; out.ppm → out_0007.ppm; a name with a % in it is a printf pattern for the frame number
-(defn frame-name [o (ptr i8)] [f u32] [name (ptr i8)] [n u64] void
+(defn frame-name [o (ptr i8)] [f u32] [name (ptr i8)] [n u64]
   (let [dot (strrchr o 46)]            ; '.'
     (cond ((!= (strchr o 37) null) (snprintf name n o f))   ; '%'
           ((!= dot null) (snprintf name n c"%.*s_%04u%s" (cast i32 (- dot o)) o f dot))
@@ -120,7 +120,7 @@
 
 (def disp display::drm {display::drm :fd -1})
 
-(defn run [argc i32] [argv (ptr (ptr i8))] i32
+(defn run [argc i32] [argv (ptr (ptr i8))] -> i32
   (let [out (ptr i8) null] [card (ptr i8) null]
        [W u32 1280] [H u32 720] [hold -1] [nframes u32 0] [rscale u32 1] [spp-arg 0]
        [still false] [no-blend false] [in-window false] [opt 0]
@@ -262,12 +262,12 @@
                        ; stdin at EOF: don't flash and exit
                        (sleep (if (>= hold 0) 0 10))))))
             (fprintf stderr c"rendered %ux%u @ %u spp on the gpu in %.2f s\n" tgt.w tgt.h spp secs)
-            0))))))
+            (return 0)))))))
 
 ; The real-time view in a desktop window: the GPU renders frame f+1 while
 ; frame f is blended and shown; the mouse and keys move the camera.
 (if-defined TEAPOT_SDL
-  (defn run-window [s (ptr scene::model)] [W u32] [H u32] [rscale u32] [spp-arg u32] [no-blend bool] [hold i32] i32
+  (defn run-window [s (ptr scene::model)] [W u32] [H u32] [rscale u32] [spp-arg u32] [no-blend bool] [hold i32] -> i32
     (let [fw (/ (- (+ W rscale) 1) rscale)] [fh (/ (- (+ H rscale) 1) rscale)]
          [spp (if (> spp-arg MAX-PASS) MAX-PASS spp-arg)]   ; (one pass per frame)
          [framebuf (cast (ptr u32) (calloc (* (cast u64 fw) fh) 4))]
@@ -309,20 +309,20 @@
               (when (and (>= hold 0) (>= (- t start) (cast f64 hold))) (break))))
           (let [secs (- (now) start)]
             (fprintf stderr c"%u frames in %.1f s (%.1f fps) on the gpu\n" frames secs (/ (cast f64 frames) secs)))
-          0)))))
+          (return 0))))))
 
 ; the camera angle of animation frame f: evenly around the orbit for a file,
 ; by the clock on screen
-(defn angle-of [out (ptr i8)] [f u32] [start f64] [nframes u32] f32
+(defn angle-of [out (ptr i8)] [f u32] [start f64] [nframes u32] -> f32
   (if (!= out null)
-      (/ (* 2.0 PI (cast f32 f)) (cast f32 nframes))
-      (cast f32 (/ (* (- (now) start) 2.0 3.14159265358979323846) ORBIT-SECONDS))))
+      (return (/ (* 2.0 PI (cast f32 f)) (cast f32 nframes)))
+      (return (cast f32 (/ (* (- (now) start) 2.0 3.14159265358979323846) ORBIT-SECONDS)))))
 
 ; getopt's result, kept for the loop condition
-(defn set-opt [p (ptr i32)] [v i32] i32 (set (deref p) v) v)
+(defn set-opt [p (ptr i32)] [v i32] -> i32 (set (deref p) v) (return v))
 
-(defn main [argc i32] [argv (ptr (ptr i8))] i32
+(defn main [argc i32] [argv (ptr (ptr i8))] -> i32
   ; run returns instead of exiting so the display is restored on the way out
   (let [r (run argc argv)]
     (display::close-card (addr disp))
-    r))
+    (return r)))

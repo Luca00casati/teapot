@@ -38,11 +38,11 @@
 
 (struct reg3 [x operand] [y operand] [z operand])
 (private
-  (defn vreg3 [] reg3
+  (defn vreg3 [] -> reg3
     (let [x (vreg)] [y (vreg)] [z (vreg)]
-      {reg3 :x x :y y :z z}))
-  (defn c3 [v reg3] [a i32] operand (if (= a 0) v.x (if (= a 1) v.y v.z)))
-  (defn r3 [x operand] [y operand] [z operand] reg3 {reg3 :x x :y y :z z})
+      (return {reg3 :x x :y y :z z})))
+  (defn c3 [v reg3] [a i32] -> operand (if (= a 0) (return v.x) (if (= a 1) (return v.y) (return v.z))))
+  (defn r3 [x operand] [y operand] [z operand] -> reg3 (return {reg3 :x x :y y :z z}))
 
   (def kdebug bool false))
 ; ray + hit state used by the traversal (allocation order = register order)
@@ -56,7 +56,7 @@
   (defmacro def-temps! (n) `(do ,@(map (lambda (i) `(def ,(sym c"t" i) operand)) (range n)) (def temps (array operand ,n)))))
 (def-temps! 11)
 (private
-  (defn tn [i i32] operand temps[i]))
+  (defn tn [i i32] -> operand (return temps[i])))
 ; shading state that survives a traversal
 (def sp reg3) (def sn reg3) (def sg reg3) (def sd reg3)
 (def sm operand)
@@ -73,7 +73,7 @@
   (defmacro alloc-temps! (n)
     `(do ,@(map (lambda (i) `(do (set ,(sym c"t" i) (vreg)) (set temps[,i] ,(sym c"t" i)))) (range n))))
 
-  (defn alloc-registers [] void :optnone
+  (defn alloc-registers [] :optnone
     ; vector registers are numbered in the order of these calls
     (set ro (vreg3)) (set rd (vreg3)) (set ri (vreg3)) (set rq (vreg3))
     (set ht (vreg))
@@ -91,19 +91,19 @@
     (set naddr (as-u (sreg 11))) (set taddr (as-u (sreg 12)))
     (set dbg-nodes (as-u (sreg 13))) (set dbg-tris (as-u (sreg 14))))
 
-  (defn dot3 [d operand] [a reg3] [b reg3] [tm operand] void :optnone
+  (defn dot3 [d operand] [a reg3] [b reg3] [tm operand] :optnone
     (<- d (* a.x b.x))
     (<- tm (* a.y b.y)) (<- d (+ d tm))
     (<- tm (* a.z b.z)) (<- d (+ d tm)))
 
-  (defn normalize3 [d reg3] [a reg3] [tm operand] void :optnone
+  (defn normalize3 [d reg3] [a reg3] [tm operand] :optnone
     (dot3 tm a a (if (same-reg d.x a.x) t10 d.x))
     (<- tm (rsq tm))
     (<- d.x (* a.x tm)) (<- d.y (* a.y tm)) (<- d.z (* a.z tm)))
 
   ; stateless hash of (src ^ key) → [0,1) in dst; 16-bit multipliers because a
   ; 32x16 multiply is a single instruction on most GPUs
-  (defn hash01 [dst operand] [src operand] [key u32] [tm operand] void :optnone
+  (defn hash01 [dst operand] [src operand] [key u32] [tm operand] :optnone
     (let [x (as-u dst)] [tt (as-u tm)]
       (<- x (^ (as-u src) key))
       (for [_r 0 2]
@@ -117,7 +117,7 @@
 
   ; per-pixel offset in [0,1): interleaved gradient noise of the pixel position,
   ; with the axes weighted (wx, wy) and shifted by k; cheap and well spread
-  (defn ign [dst operand] [wx f32] [wy f32] [k f32] [tm operand] void :optnone
+  (defn ign [dst operand] [wx f32] [wy f32] [k f32] [tm operand] :optnone
     (<- dst (+ lane-x gx)) (<- tm (+ lane-y gy))
     (<- dst (* dst wx)) (<- tm (* tm wy))
     (<- dst (+ dst tm)) (<- dst (+ dst k))
@@ -125,14 +125,14 @@
 
   ; sample s of a 2D R2 low-discrepancy sequence, rotated per pixel; s keeps
   ; counting across passes and animation frames, so it also stratifies over time
-  (defn r2-sample [du operand] [dv operand] [key f32] [vtmp operand] void :optnone
+  (defn r2-sample [du operand] [dv operand] [key f32] [vtmp operand] :optnone
     (ign du 0.06711056 0.00583715 key vtmp)
     (ign dv 0.00583715 0.06711056 (+ key 0.5) vtmp)
     (<- tmp (* r2 0.7548776662)) (<- du (+ du tmp)) (<- du (frac du))
     (<- tmp (* r2 0.5698402910)) (<- dv (+ dv tmp)) (<- dv (frac dv)))
 
   ; uniform random float in [0,1) per lane (xorshift32)
-  (defn rand01 [dst operand] [vtmp operand] void :optnone
+  (defn rand01 [dst operand] [vtmp operand] :optnone
     (let [tt (as-u vtmp)]
       (<- tt (<< rng 13)) (<- rng (^ rng tt))
       (<- tt (>> rng 17)) (<- rng (^ rng tt))
@@ -141,7 +141,7 @@
       (<- dst (+ vtmp -1.0))))
 
   ; clamp a reciprocal so (b - o) * inv never makes inf - inf
-  (defn clamp-big [v operand] void :optnone
+  (defn clamp-big [v operand] :optnone
     (<- v (min v 1e20))
     (<- v (max v -1e20)))
 
@@ -152,7 +152,7 @@
   ; occluded. Lanes may enter with ht = -1 to skip the ray entirely. The floor
   ; is ignored (shadow rays go up towards the light).
 
-  (defn traverse [shadow bool] void :optnone
+  (defn traverse [shadow bool] :optnone
     (<- ri.x (inv rd.x)) (<- ri.y (inv rd.y)) (<- ri.z (inv rd.z))
     (clamp-big ri.x) (clamp-big ri.y) (clamp-big ri.z)
     (<- rq.x (* ro.x ri.x)) (<- rq.y (* ro.y ri.y)) (<- rq.z (* ro.z ri.z))
@@ -306,14 +306,14 @@
   ;; ------------------------------------------------------------- shading ---
 
   ; sky(dir) → d, using s as scratch
-  (defn sky3 [d reg3] [ydir operand] [s operand] void :optnone
+  (defn sky3 [d reg3] [ydir operand] [s operand] :optnone
     (<- s (max ydir 0.0))
     (<- s (sqrt s))
     (for [a 0 3]
       (<- (c3 d a) (* s (- (axis scene::sky-zenith a) (axis scene::sky-horizon a))))
       (<- (c3 d a) (+ (c3 d a) (axis scene::sky-horizon a)))))
 
-  (defn bounce [last bool] [stratified bool] void :optnone
+  (defn bounce [last bool] [stratified bool] :optnone
     (<- ht 1e6)
     (traverse false)
     (when stratified                       ; primary bounce: keep the depth,
@@ -437,7 +437,7 @@
         (sky3 sr rd.y t4)
         (for [a 0 3] (<- t5 (* (c3 thr a) (c3 sr a))) (<- (c3 acc a) (+ (c3 acc a) t5))))))
 
-  (defn kernel-main [] void :optnone
+  (defn kernel-main [] :optnone
     ; tile origin as float scalars
     (<- gx group-x)
     (<- gy group-y)
@@ -513,7 +513,7 @@
       (end))))
 
 ; the kernel as a fresh program in `prog`; debug = traversal heat map
-(defn build [debug bool] void
+(defn build [debug bool]
   (set prog {program})
   (set kdebug debug)
   (alloc-registers)

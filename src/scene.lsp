@@ -108,7 +108,7 @@
 
 ; Bernstein basis and its derivative at t
 (private
-  (defn bern [t f32] [b (ptr f32)] [d (ptr f32)] void
+  (defn bern [t f32] [b (ptr f32)] [d (ptr f32)]
     (let [s (- 1.0 t)]
       (set b[0] (* s s s))
       (set b[1] (* 3.0 t s s))
@@ -120,7 +120,7 @@
       (set d[3] (* 3.0 t t))))
 
   ; point and the two tangents of a bicubic patch (cp: 4x4 control points)
-  (defn eval-patch [cp (ptr v3)] [u f32] [v f32] [p (ptr v3)] [du (ptr v3)] [dv (ptr v3)] void
+  (defn eval-patch [cp (ptr v3)] [u f32] [v f32] [p (ptr v3)] [du (ptr v3)] [dv (ptr v3)]
     (let [bu (array f32 4)] [du_ (array f32 4)] [bv (array f32 4)] [dv_ (array f32 4)]
          [pp (vec3 0.0 0.0 0.0)] [pu pp] [pv pp]
       (bern u bu du_)
@@ -135,10 +135,10 @@
       (set (deref du) pu)
       (set (deref dv) pv)))
 
-  (defn centroid [t (ptr tri)] v3
-    (+ t.v0 (* (+ t.e1 t.e2) (/ 1.0 3.0))))
+  (defn centroid [t (ptr tri)] -> v3
+    (return (+ t.v0 (* (+ t.e1 t.e2) (/ 1.0 3.0)))))
 
-  (defn build-mesh [s (ptr model)] void
+  (defn build-mesh [s (ptr model)]
     (let [npatch u64 (+ (* 6 4) (* 4 2))]
          [quad {(array f32 8) 1.0 1.0 1.0 -1.0 -1.0 -1.0 -1.0 1.0}]
       (set s.vpos (cast (ptr v3) (malloc (* (sizeof v3) npatch (+ TESS 1) (+ TESS 1)))))
@@ -184,13 +184,13 @@
 
   (const BINS 16)
 
-  (defn bin-of [c f32] [lo f32] [span f32] i32
+  (defn bin-of [c f32] [lo f32] [span f32] -> i32
     (let [b (cast i32 (* (/ (- c lo) span) (cast f32 BINS)))]
-      (if (< b 0) 0 (if (> b (- BINS 1)) (- BINS 1) b))))
+      (if (< b 0) (return 0) (if (> b (- BINS 1)) (return (- BINS 1)) (return b)))))
 
-  (defn area [e v3] f32 (+ (* e.x e.y) (* e.y e.z) (* e.z e.x)))
+  (defn area [e v3] -> f32 (return (+ (* e.x e.y) (* e.y e.z) (* e.z e.x))))
 
-  (defn build-node [s (ptr model)] [ni u32] [first u32] [count u32] void
+  (defn build-node [s (ptr model)] [ni u32] [first u32] [count u32]
     (let [big (vec3 1e30 1e30 1e30)] [bmin big] [bmax (- big)] [cmin bmin] [cmax bmax]
       (for [k first (+ first count)]
         (let [t (addr s.tris[s.tidx[k]])]
@@ -249,8 +249,8 @@
             (let [e (- cmax cmin)]
               (let [ax (if (and (> e.x e.y) (> e.x e.z)) 0 (if (> e.y e.z) 1 2))]
                 (sort::sort-by {(slice u32) :data (addr s.tidx[first]) :len (cast u64 count)}
-                               (fn [a u32] [b u32] bool
-                                 (< (axis (centroid (addr s.tris[a])) ax) (axis (centroid (addr s.tris[b])) ax)))))
+                               (fn [a u32] [b u32] -> bool
+                                 (return (< (axis (centroid (addr s.tris[a])) ax) (axis (centroid (addr s.tris[b])) ax))))))
               (set mid (/ count 2))))
         (let [l s.nnode]
           (+= s.nnode 2)
@@ -260,7 +260,7 @@
           (build-node s (+ l 1) (+ first mid) (- count mid)))))))
 
 ; tessellate the teapot and build the SAH BVH
-(defn build [] model
+(defn build [] -> model
   (let [s {model}]
     (build-mesh (addr s))
     (set s.tidx (cast (ptr u32) (malloc (* (sizeof u32) (cast u64 s.ntri)))))
@@ -268,7 +268,7 @@
     (set s.nodes (cast (ptr node) (malloc (* (sizeof node) (cast u64 s.ntri) 2))))
     (set s.nnode 1)
     (build-node (addr s) 0 0 s.ntri)
-    s))
+    (return s)))
 
 ;; --------------------------------------------------- GPU scene layout ---
 ; 8 depth-first copies of the BVH with "skip" links (one per ray-direction
@@ -277,16 +277,16 @@
 ;   node (32 B):  bmin.xyz, skip (u32) | bmax.xyz, first_tri << 3 | count (u32, 0 = interior)
 ;   triangle:     Havel-Herout planes N,d | N1,d1 | N2,d2 | n0 | n1-n0 | n2-n0 | geometric normal
 
-(defn layout-bytes [s (ptr model)] u64 (* (cast u64 s.nnode) 32))
-(defn blob-bytes [s (ptr model)] u64 (+ (* 8 (layout-bytes s)) (* (cast u64 s.ntri) 128)))
+(defn layout-bytes [s (ptr model)] -> u64 (return (* (cast u64 s.nnode) 32)))
+(defn blob-bytes [s (ptr model)] -> u64 (return (+ (* 8 (layout-bytes s)) (* (cast u64 s.ntri) 128))))
 
 (private
-  (defn put3 [r (ptr u32)] [at u32] [v v3] void
+  (defn put3 [r (ptr u32)] [at u32] [v v3]
     (set r[at] (bitcast u32 v.x))
     (set r[(+ at 1)] (bitcast u32 v.y))
     (set r[(+ at 2)] (bitcast u32 v.z))))
 
-(defn write-blob [s (ptr model)] [dst (ptr u32)] void
+(defn write-blob [s (ptr model)] [dst (ptr u32)]
   (let [n s.nnode] [layout (cast u32 (/ (layout-bytes s) 4))] [nodes s.nodes]
        [order (cast (ptr u32) (malloc (* 4 (cast u64 n))))] [skip (cast (ptr u32) (malloc (* 4 (cast u64 n))))]
        [size (cast (ptr u32) (malloc (* 4 (cast u64 n))))] [stack (cast (ptr u32) (malloc (* 4 (cast u64 n))))]
@@ -341,24 +341,24 @@
 (struct camera [pos v3] [fwd v3] [right v3] [up v3] [tan f32])   ; tan = tan(fov_y / 2)
 
 ; on a circle around the teapot; 0 = the original viewpoint
-(defn orbit [angle f32] camera
+(defn orbit [angle f32] -> camera
   (let [centre (vec3 0.2 0.0 0.0)] [look (vec3 0.2 1.25 0.0)]
        [radius f32 9.44] [height f32 4.4] [a0 f32 0.635]          ; a0 = atan2(5.6, 7.6)
        [pos (vec3 (+ centre.x (* radius (math::sinf (+ a0 angle)))) height (+ centre.z (* radius (math::cosf (+ a0 angle)))))]
        [fwd (normalize (- look pos))]
        [right (normalize (cross fwd (vec3 0.0 1.0 0.0)))]
-    {camera :pos pos :fwd fwd :right right :up (cross right fwd) :tan (math::tanf (/ (* 34.0 PI) 360.0))}))
+    (return {camera :pos pos :fwd fwd :right right :up (cross right fwd) :tan (math::tanf (/ (* 34.0 PI) 360.0))})))
 
 ; anywhere around the teapot: yaw as orbit's angle, pitch up from orbit's
 ; height, the distance scaled by zoom (yaw 0, pitch 0, zoom 1 = (orbit 0.0))
-(defn view [yaw f32] [pitch f32] [zoom f32] camera
+(defn view [yaw f32] [pitch f32] [zoom f32] -> camera
   (let [look (vec3 0.2 1.25 0.0)]
        [a0 f32 0.635] [dist (* zoom (math::sqrtf (+ (* 9.44 9.44) (* 3.15 3.15))))]   ; orbit's radius, height above look
        [el (+ (math::atan2f 3.15 9.44) pitch)]
        [pos (+ look (vec3 (* dist (math::cosf el) (math::sinf (+ a0 yaw))) (* dist (math::sinf el)) (* dist (math::cosf el) (math::cosf (+ a0 yaw)))))]
        [fwd (normalize (- look pos))]
        [right (normalize (cross fwd (vec3 0.0 1.0 0.0)))]
-    {camera :pos pos :fwd fwd :right right :up (cross right fwd) :tan (math::tanf (/ (* 34.0 PI) 360.0))}))
+    (return {camera :pos pos :fwd fwd :right right :up (cross right fwd) :tan (math::tanf (/ (* 34.0 PI) 360.0))})))
 
 ; the look, shared with the GPU kernel
 (def light-pos v3 {v3 :x -6.0 :y 8.0 :z 0.5})
