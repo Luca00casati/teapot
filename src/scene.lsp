@@ -249,8 +249,8 @@
             (let [e (- cmax cmin)]
               (let [ax (if (and (> e.x e.y) (> e.x e.z)) 0 (if (> e.y e.z) 1 2))]
                 (sort::sort-by {(slice u32) :data (addr s.tidx[first]) :len (cast u64 count)}
-                               (fn [a u32] [b u32] -> bool
-                                 (return (< (axis (centroid (addr s.tris[a])) ax) (axis (centroid (addr s.tris[b])) ax))))))
+                               (lambda [a u32] [b u32]
+                                 -> (< (axis (centroid (addr s.tris[a])) ax) (axis (centroid (addr s.tris[b])) ax)))))
               (set mid (/ count 2))))
         (let [l s.nnode]
           (+= s.nnode 2)
